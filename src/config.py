@@ -27,6 +27,22 @@ class OptimizationConfig:
     velocidad_promedio_kmh: float = 35.0
     penalizacion_geografica: int = 1
 
+    # V3: función objetivo de calidad dentro de cada escenario de días.
+    peso_obj_prioridad_dia: int = 120
+    peso_obj_traslado_auditor: int = 35
+    peso_obj_traslado_supervisor: int = 10
+    peso_obj_traslado_contratista: int = 10
+    peso_obj_balance_dia: int = 20
+    peso_obj_balance_auditor: int = 8
+    peso_obj_inicio_temprano: int = 1
+    peso_obj_supervisor_alternativo: int = 5
+
+    # V3: métricas posteriores de calidad. Menor costo_operativo = mejor.
+    peso_calidad_espera: float = 1.0
+    peso_calidad_balance_dia: float = 0.35
+    peso_calidad_balance_auditor: float = 0.25
+    peso_calidad_cambio_acompanante: float = 20.0
+
     @property
     def minutos_jornada(self) -> int:
         inicio = _parse_hhmm(self.hora_inicio)
