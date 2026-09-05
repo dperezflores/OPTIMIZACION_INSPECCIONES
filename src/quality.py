@@ -5,7 +5,8 @@ from dataclasses import dataclass
 from statistics import pstdev
 
 from .config import OptimizationConfig
-from .distance_matrix import TravelValue, calculate_plan_travel_metrics
+from .depot import DEPOT_ID
+from .distance_matrix import TravelValue, calculate_plan_travel_metrics, travel_slots
 from .models import PlanItem, TIPO_FISICA
 from .vehicle_planner import calculate_vehicle_plan
 
@@ -16,6 +17,7 @@ class QualityMetrics:
     desbalance_dia_min: float = 0.0
     desbalance_auditor_min: float = 0.0
     cambios_acompanante: int = 0
+    tiempo_adicional_traslado_min: float = 0.0
     costo_operativo: float = 0.0
     vehicle_rendezvous_issues: int = 0
 
@@ -34,6 +36,28 @@ def _auditor_sequences(plan: list[PlanItem]) -> dict[tuple[str, int], list[PlanI
     for items in groups.values():
         items.sort(key=lambda x: (x.inicio_slot, x.fin_slot, x.obra_id))
     return groups
+
+
+def _additional_depot_time(
+    sequences: dict[tuple[str, int], list[PlanItem]],
+    matrix: dict[tuple[str, str], TravelValue],
+    config: OptimizationConfig,
+) -> float:
+    """Minutos de traslado que quedan fuera de la ventana de actividades 08:00-17:00."""
+    total = 0.0
+    horizon = config.slots_por_dia
+    for items in sequences.values():
+        if not items:
+            continue
+        first = items[0]
+        last = items[-1]
+        outbound = travel_slots(matrix, DEPOT_ID, first.obra_id, config)
+        inbound = travel_slots(matrix, last.obra_id, DEPOT_ID, config)
+        departure_slot = first.inicio_slot - outbound
+        return_slot = last.fin_slot + inbound
+        total += max(0, -departure_slot) * config.slot_minutos
+        total += max(0, return_slot - horizon) * config.slot_minutos
+    return total
 
 
 def calculate_quality_metrics(
@@ -79,6 +103,7 @@ def calculate_quality_metrics(
 
     travel = calculate_plan_travel_metrics(plan, matrix)
     vehicle = calculate_vehicle_plan(plan, matrix, config)
+    additional_time = _additional_depot_time(sequences, matrix, config)
 
     operating_cost = (
         config.peso_calidad_traslado_auditor * travel.auditor_min
@@ -91,6 +116,7 @@ def calculate_quality_metrics(
         + config.peso_calidad_km_vehiculo * vehicle.vehicle_km
         + config.peso_calidad_viaje_solo * vehicle.solo_legs
         + config.peso_calidad_viaje_vehicular * vehicle.vehicle_trips
+        + config.peso_calidad_tiempo_adicional * additional_time
         + 5000.0 * vehicle.rendezvous_issues
     )
 
@@ -99,6 +125,7 @@ def calculate_quality_metrics(
         desbalance_dia_min=day_imbalance,
         desbalance_auditor_min=auditor_imbalance,
         cambios_acompanante=companion_changes,
+        tiempo_adicional_traslado_min=additional_time,
         costo_operativo=operating_cost,
         vehicle_rendezvous_issues=vehicle.rendezvous_issues,
     )
