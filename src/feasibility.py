@@ -6,37 +6,36 @@ from typing import Optional
 from ortools.sat.python import cp_model
 
 from .config import OptimizationConfig
-from .distance_matrix import build_travel_matrix, calculate_plan_travel_metrics, travel_slots
+from .distance_matrix import TravelValue, build_travel_matrix, calculate_plan_travel_metrics, travel_slots
 from .models import Auditor, Obra, PlanItem, ScenarioResult
 
 
 class FeasibilitySolver:
-    """Modelo CP-SAT V1: programación multi-recurso con traslados aproximados."""
+    """Modelo CP-SAT con matriz de traslado intercambiable.
+
+    Si no se proporciona una matriz externa, mantiene el comportamiento V1 y
+    construye la aproximación Haversine. V2 inyecta una matriz de Google Routes.
+    """
 
     def __init__(
         self,
         obras: list[Obra],
         auditores: list[Auditor],
         config: OptimizationConfig,
+        travel_matrix: dict[tuple[str, str], TravelValue] | None = None,
     ) -> None:
         self.obras = obras
         self.auditores = [a for a in auditores if a.disponible]
         self.config = config
         self.auditor_ids = sorted(a.auditor_id for a in self.auditores)
-        self.travel_matrix = build_travel_matrix(obras, config)
+        self.travel_matrix = travel_matrix if travel_matrix is not None else build_travel_matrix(obras, config)
 
     def _add_resource_travel_constraints(
         self,
         model: cp_model.CpModel,
         resource_items: dict[tuple[str, int], list[tuple[Obra, cp_model.IntVar, int, cp_model.IntVar]]],
     ) -> None:
-        """Impide solapes e incorpora el tiempo necesario para viajar entre actividades.
-
-        Cada elemento es (obra, inicio, duración_slots, presencia). Cuando el recurso
-        participa en dos actividades el mismo día, CP-SAT elige cuál ocurre primero y
-        exige el viaje correspondiente entre ambas ubicaciones.
-        """
-        horizon = self.config.slots_por_dia
+        """Exige duración de actividad + viaje entre usos consecutivos de un recurso."""
         for (resource_id, day), items in resource_items.items():
             if len(items) < 2:
                 continue
@@ -47,18 +46,8 @@ class FeasibilitySolver:
                     order_ij = model.new_bool_var(
                         f"ord__{resource_id}__d{day}__{obra_i.obra_id}__{obra_j.obra_id}"
                     )
-                    tij = travel_slots(
-                        self.travel_matrix,
-                        obra_i.obra_id,
-                        obra_j.obra_id,
-                        self.config,
-                    )
-                    tji = travel_slots(
-                        self.travel_matrix,
-                        obra_j.obra_id,
-                        obra_i.obra_id,
-                        self.config,
-                    )
+                    tij = travel_slots(self.travel_matrix, obra_i.obra_id, obra_j.obra_id, self.config)
+                    tji = travel_slots(self.travel_matrix, obra_j.obra_id, obra_i.obra_id, self.config)
                     model.add(start_j >= start_i + dur_i + tij).only_enforce_if(
                         [present_i, present_j, order_ij]
                     )
@@ -128,7 +117,6 @@ class FeasibilitySolver:
                             objective_terms.append(3 * z)
                     model.add(sum(z_vars) == y)
 
-                # Prioridades altas se retrasan menos; después se favorecen inicios tempranos.
                 objective_terms.append((d * obra.prioridad * 10) * y)
                 objective_terms.append(s)
 
