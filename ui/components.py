@@ -9,7 +9,17 @@ from src.optimizer import OptimizationRun
 
 def render_header() -> None:
     st.title("Optimización de inspecciones")
-    st.caption("Modelo V1 · Programación multi-recurso con traslados aproximados")
+    st.caption("Modelo V2 · Programación multi-recurso con Google Routes + OR-Tools / CP-SAT")
+
+
+def _travel_source_label(run: OptimizationRun | None) -> str:
+    if run is None:
+        return "—"
+    if run.travel_source == "google_routes":
+        return "Google Routes (nueva)"
+    if run.travel_source == "google_cache":
+        return "Google Routes (caché)"
+    return "Haversine V1"
 
 
 def render_kpis(context: OptimizationContext, run: OptimizationRun | None) -> None:
@@ -34,22 +44,23 @@ def render_kpis(context: OptimizationContext, run: OptimizationRun | None) -> No
     c1.metric("Actividades", context.obras_count)
     c2.metric("Proyectos documentales", proyectos)
     c3.metric("Inspecciones físicas", fisicas)
-    c4.metric("Auditores", context.auditores_disponibles)
+    c4.metric("Ubicaciones únicas", context.unique_location_count)
 
-    c5, c6, c7 = st.columns(3)
-    c5.metric("Mínimo factible V1", best_days, help=f"Cota inferior teórica: {lower_bound} día(s)")
-    c6.metric("Km-auditor aprox.", travel_km, help="Suma de desplazamientos personales de auditores; aún no equivale a km-vehículo.")
+    c5, c6, c7, c8 = st.columns(4)
+    c5.metric("Mínimo factible V2", best_days, help=f"Cota inferior teórica: {lower_bound} día(s)")
+    c6.metric("Km-auditor", travel_km, help="Suma de desplazamientos personales de auditores; no equivale aún a km-vehículo.")
     c7.metric("Horas traslado auditores", travel_h)
+    c8.metric("Fuente de rutas", _travel_source_label(run))
 
 
 def render_v0_notice() -> None:
     st.markdown(
         """
         <div class="model-note">
-        <strong>Alcance V1:</strong> los proyectos documentales requieren sólo al auditor responsable;
-        las inspecciones físicas requieren responsable + acompañante. Los traslados ya forman parte de
-        las restricciones de auditores, supervisores y contratistas. Por ahora se estiman con distancia
-        Haversine ajustada y velocidad media; todavía no son tiempos reales de Google Routes.
+        <strong>Alcance V2:</strong> Google Routes puede proporcionar distancia y duración reales por red vial.
+        La matriz se calcula sólo para ubicaciones únicas, se guarda en caché y luego CP-SAT la usa como
+        restricción de traslado para auditores, supervisores y contratistas. El modo Haversine V1 permanece
+        disponible únicamente como respaldo técnico.
         </div>
         """,
         unsafe_allow_html=True,
