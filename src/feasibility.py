@@ -6,17 +6,19 @@ from typing import Optional
 from ortools.sat.python import cp_model
 
 from .config import OptimizationConfig
+from .depot import DEPOT_ID
 from .distance_matrix import TravelValue, build_travel_matrix, calculate_plan_travel_metrics, travel_slots
 from .models import Auditor, Obra, PlanItem, ScenarioResult
 from .quality import calculate_quality_metrics
+from .vehicle_planner import calculate_vehicle_plan
 
 
 class FeasibilitySolver:
-    """CP-SAT con restricciones duras y función de calidad V3/V4.
+    """CP-SAT con restricciones duras y función de calidad V3/V4/V5.
 
-    La matriz puede venir de Haversine o Google Routes. Los traslados siguen siendo
-    restricciones duras. Para V4, `solve()` admite fijar el día de una parte de las
-    obras; ALNS libera un vecindario y CP-SAT repara sólo esa parte.
+    V5 añade el depósito ASEG: todo auditor debe poder salir de ASEG, completar su
+    agenda y regresar dentro de la jornada. La flota es suficiente; el uso compartido
+    se evalúa después como criterio de calidad y se refina mediante ALNS.
     """
 
     def __init__(
@@ -55,6 +57,20 @@ class FeasibilitySolver:
                     model.add(start_i >= start_j + dur_j + tji).only_enforce_if(
                         [present_i, present_j, order_ij.Not()]
                     )
+
+    def _add_depot_constraints(
+        self,
+        model: cp_model.CpModel,
+        auditor_items: dict[tuple[str, int], list[tuple[Obra, cp_model.IntVar, int, cp_model.IntVar]]],
+    ) -> None:
+        """Toda actividad de auditor debe quedar dentro de una jornada que puede iniciar y cerrar en ASEG."""
+        horizon = self.config.slots_por_dia
+        for (_auditor_id, _day), items in auditor_items.items():
+            for obra, start, duration, present in items:
+                outbound = travel_slots(self.travel_matrix, DEPOT_ID, obra.obra_id, self.config)
+                inbound = travel_slots(self.travel_matrix, obra.obra_id, DEPOT_ID, self.config)
+                model.add(start >= outbound).only_enforce_if(present)
+                model.add(start + duration + inbound <= horizon).only_enforce_if(present)
 
     def _add_geographic_dispersion_objective(
         self,
@@ -204,6 +220,7 @@ class FeasibilitySolver:
         self._add_resource_travel_constraints(model, auditor_items)
         self._add_resource_travel_constraints(model, contractor_items)
         self._add_resource_travel_constraints(model, supervisor_items)
+        self._add_depot_constraints(model, auditor_items)
         self._add_geographic_dispersion_objective(model, assign, days, objective_terms)
         self._add_balance_objective(model, auditor_items, days, objective_terms)
         model.minimize(sum(objective_terms))
@@ -273,6 +290,16 @@ class FeasibilitySolver:
         result.supervisor_travel_min = metrics.supervisor_min
         result.contractor_travel_km = metrics.contratista_km
         result.contractor_travel_min = metrics.contratista_min
+
+        vehicle = calculate_vehicle_plan(result.plan, self.travel_matrix, self.config)
+        result.vehicle_km = vehicle.vehicle_km
+        result.vehicle_travel_min = vehicle.vehicle_travel_min
+        result.vehicle_trips = vehicle.vehicle_trips
+        result.vehicles_required_peak = vehicle.vehicles_required_peak
+        result.solo_vehicle_legs = vehicle.solo_legs
+        result.shared_vehicle_legs = vehicle.shared_legs
+        result.vehicle_plan = list(vehicle.legs)
+
         quality = calculate_quality_metrics(result.plan, self.travel_matrix, self.config)
         result.waiting_auditor_min = quality.espera_auditor_min
         result.day_imbalance_min = quality.desbalance_dia_min
