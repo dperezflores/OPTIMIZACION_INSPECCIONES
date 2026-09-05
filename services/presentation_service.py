@@ -4,7 +4,7 @@ from datetime import datetime
 import pandas as pd
 
 from src.config import OptimizationConfig
-from src.models import TIPO_FISICA, TIPO_PROYECTO
+from src.models import ScenarioResult, TIPO_FISICA, TIPO_PROYECTO
 from src.optimizer import OptimizationRun
 from .optimization_service import OptimizationContext
 
@@ -29,6 +29,14 @@ def build_scenarios_dataframe(run: OptimizationRun) -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 
+def select_solution(run: OptimizationRun, mode: str = "minimum") -> ScenarioResult | None:
+    if mode == "refined" and run.refined_best is not None:
+        return run.refined_best
+    if mode == "quality" and run.quality_best is not None:
+        return run.quality_best
+    return run.best
+
+
 def _tipo_revision(obj) -> str:
     return getattr(obj, "tipo_revision", TIPO_FISICA)
 
@@ -39,8 +47,8 @@ def _equipo(item) -> str:
     return item.auditor_responsable
 
 
-def build_plan_dataframe(run: OptimizationRun, config: OptimizationConfig, use_quality_best: bool = False) -> pd.DataFrame:
-    selected = run.quality_best if use_quality_best and run.quality_best is not None else run.best
+def build_plan_dataframe(run: OptimizationRun, config: OptimizationConfig, mode: str = "minimum") -> pd.DataFrame:
+    selected = select_solution(run, mode)
     if selected is None:
         return pd.DataFrame()
     rows = []
@@ -63,12 +71,13 @@ def build_plan_dataframe(run: OptimizationRun, config: OptimizationConfig, use_q
     return pd.DataFrame(rows).sort_values(["Día", "Inicio", "Equipo"])
 
 
-def build_gantt_dataframe(run: OptimizationRun, config: OptimizationConfig) -> pd.DataFrame:
-    if run.best is None:
+def build_gantt_dataframe(run: OptimizationRun, config: OptimizationConfig, mode: str = "minimum") -> pd.DataFrame:
+    selected = select_solution(run, mode)
+    if selected is None:
         return pd.DataFrame()
     rows = []
     base_date = datetime(2026, 1, 1)
-    for item in run.best.plan:
+    for item in selected.plan:
         start_h, start_m = map(int, config.slot_a_hora(item.inicio_slot).split(":"))
         end_h, end_m = map(int, config.slot_a_hora(item.fin_slot).split(":"))
         day_offset = item.dia - 1
@@ -84,10 +93,12 @@ def build_gantt_dataframe(run: OptimizationRun, config: OptimizationConfig) -> p
     return pd.DataFrame(rows)
 
 
-def build_map_dataframe(context: OptimizationContext, run: OptimizationRun | None) -> pd.DataFrame:
+def build_map_dataframe(context: OptimizationContext, run: OptimizationRun | None, mode: str = "minimum") -> pd.DataFrame:
     assigned_day = {}
-    if run is not None and run.best is not None:
-        assigned_day = {item.obra_id: item.dia for item in run.best.plan}
+    if run is not None:
+        selected = select_solution(run, mode)
+        if selected is not None:
+            assigned_day = {item.obra_id: item.dia for item in selected.plan}
     rows = []
     for obra in context.obras:
         if obra.latitud is None or obra.longitud is None:
