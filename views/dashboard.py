@@ -22,14 +22,8 @@ def render_dashboard(context: OptimizationContext, run: OptimizationRun | None) 
     if run.best is None:
         st.error("No se encontró una solución factible en el rango evaluado.")
     else:
-        certification = (
-            "mínimo certificado"
-            if run.minimum_certified
-            else "primera solución factible encontrada"
-        )
-        st.success(
-            f"La V0.1 encontró una solución de {run.best.dias} día(s): {certification}."
-        )
+        certification = "mínimo certificado" if run.minimum_certified else "primera solución factible encontrada"
+        st.success(f"La V1 encontró una solución de {run.best.dias} día(s): {certification}.")
 
     scenarios = build_scenarios_dataframe(run)
     st.markdown("#### Escenarios evaluados")
@@ -40,5 +34,11 @@ def render_dashboard(context: OptimizationContext, run: OptimizationRun | None) 
         f"Jornada: **{context.config.hora_inicio}–{context.config.hora_fin}** · "
         f"Intervalo: **{context.config.slot_minutos} min** · "
         "Proyecto documental: **1 auditor** · Inspección física: **2 auditores** · "
-        "Acompañante dinámico por inspección · Traslados todavía no incluidos."
+        "Acompañante dinámico por inspección."
+    )
+    st.write(
+        "Traslados V1: distancia geodésica Haversine × "
+        f"**{context.config.factor_distancia_vial:.2f}**, velocidad media "
+        f"**{context.config.velocidad_promedio_kmh:.0f} km/h**. "
+        "Los tiempos se redondean al intervalo del modelo. Esta aproximación se reemplazará por Google Routes."
     )
