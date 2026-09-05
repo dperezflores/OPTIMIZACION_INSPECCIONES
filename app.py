@@ -15,6 +15,8 @@ from views.mapa import render_mapa
 from views.planificacion import render_planificacion
 
 
+APP_SCHEMA_VERSION = "0.1.1"
+
 st.set_page_config(
     page_title="Optimización de inspecciones",
     page_icon="📍",
@@ -23,15 +25,17 @@ st.set_page_config(
 )
 apply_styles()
 
+# El contexto es pequeño (44 actividades) y depende directamente del esquema
+# de src.models. No se cachea para evitar reutilizar objetos creados con una
+# versión anterior de las dataclasses después de un redeploy/hot reload.
+context = load_context()
 
-@st.cache_resource
-def get_context():
-    return load_context()
-
-
-context = get_context()
-
-if "optimization_run" not in st.session_state:
+# Las soluciones guardadas en session_state también contienen dataclasses del
+# modelo. Si cambia el esquema, se descartan de forma explícita.
+if st.session_state.get("app_schema_version") != APP_SCHEMA_VERSION:
+    st.session_state.app_schema_version = APP_SCHEMA_VERSION
+    st.session_state.optimization_run = None
+elif "optimization_run" not in st.session_state:
     st.session_state.optimization_run = None
 
 render_header()

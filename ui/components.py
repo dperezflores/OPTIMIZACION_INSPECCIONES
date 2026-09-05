@@ -3,7 +3,7 @@ from __future__ import annotations
 import streamlit as st
 
 from services.optimization_service import OptimizationContext
-from src.models import TIPO_PROYECTO
+from src.models import TIPO_FISICA, TIPO_PROYECTO
 from src.optimizer import OptimizationRun
 
 
@@ -20,7 +20,12 @@ def render_kpis(context: OptimizationContext, run: OptimizationRun | None) -> No
         if run.best is not None:
             best_days = str(run.best.dias)
 
-    proyectos = sum(o.tipo_revision == TIPO_PROYECTO for o in context.obras)
+    # Fallback defensivo para sesiones antiguas durante un redeploy. En datos
+    # nuevos, tipo_revision siempre existe y esta ruta no se utiliza.
+    proyectos = sum(
+        getattr(o, "tipo_revision", TIPO_FISICA) == TIPO_PROYECTO
+        for o in context.obras
+    )
     fisicas = context.obras_count - proyectos
 
     c1, c2, c3, c4, c5 = st.columns(5)
@@ -28,7 +33,11 @@ def render_kpis(context: OptimizationContext, run: OptimizationRun | None) -> No
     c2.metric("Proyectos documentales", proyectos)
     c3.metric("Inspecciones físicas", fisicas)
     c4.metric("Auditores disponibles", context.auditores_disponibles)
-    c5.metric("Mínimo factible V0.1", best_days, help=f"Cota inferior teórica: {lower_bound} día(s)")
+    c5.metric(
+        "Mínimo factible V0.1",
+        best_days,
+        help=f"Cota inferior teórica: {lower_bound} día(s)",
+    )
 
 
 def render_v0_notice() -> None:

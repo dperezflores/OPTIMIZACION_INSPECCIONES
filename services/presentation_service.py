@@ -5,7 +5,7 @@ from datetime import datetime
 import pandas as pd
 
 from src.config import OptimizationConfig
-from src.models import TIPO_PROYECTO
+from src.models import TIPO_FISICA, TIPO_PROYECTO
 from src.optimizer import OptimizationRun
 from .optimization_service import OptimizationContext
 
@@ -26,6 +26,10 @@ def build_scenarios_dataframe(run: OptimizationRun) -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 
+def _tipo_revision(obj) -> str:
+    return getattr(obj, "tipo_revision", TIPO_FISICA)
+
+
 def _equipo(item) -> str:
     if item.auditor_acompanante:
         return " + ".join(sorted((item.auditor_responsable, item.auditor_acompanante)))
@@ -42,7 +46,7 @@ def build_plan_dataframe(run: OptimizationRun, config: OptimizationConfig) -> pd
             "Día": item.dia,
             "Inicio": config.slot_a_hora(item.inicio_slot),
             "Fin": config.slot_a_hora(item.fin_slot),
-            "Tipo": "Proyecto documental" if item.tipo_revision == TIPO_PROYECTO else "Inspección física",
+            "Tipo": "Proyecto documental" if _tipo_revision(item) == TIPO_PROYECTO else "Inspección física",
             "Obra ID": item.obra_id,
             "Contrato": item.contrato,
             "Obra": item.descripcion,
@@ -75,7 +79,7 @@ def build_gantt_dataframe(run: OptimizationRun, config: OptimizationConfig) -> p
             "Obra": f"{item.obra_id} · {item.contrato}",
             "Día": f"Día {item.dia}",
             "Responsable": item.auditor_responsable,
-            "Tipo": "Proyecto documental" if item.tipo_revision == TIPO_PROYECTO else "Inspección física",
+            "Tipo": "Proyecto documental" if _tipo_revision(item) == TIPO_PROYECTO else "Inspección física",
         })
     return pd.DataFrame(rows)
 
@@ -99,7 +103,7 @@ def build_map_dataframe(
             "contrato": obra.contrato,
             "auditor": obra.auditor_responsable,
             "dia": assigned_day.get(obra.obra_id),
-            "tipo": "Proyecto documental" if obra.tipo_revision == TIPO_PROYECTO else "Inspección física",
+            "tipo": "Proyecto documental" if _tipo_revision(obra) == TIPO_PROYECTO else "Inspección física",
             "descripcion": obra.descripcion,
         })
     return pd.DataFrame(rows)
