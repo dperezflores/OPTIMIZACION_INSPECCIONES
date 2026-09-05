@@ -28,6 +28,7 @@ class OptimizationRequest:
     travel_provider: str = TRAVEL_PROVIDER_GOOGLE
     google_api_key: str | None = None
     force_refresh_routes: bool = False
+    compare_all_scenarios: bool = True
 
 
 @dataclass
@@ -72,7 +73,6 @@ def load_context(
 
 
 def google_cache_status(context: OptimizationContext) -> GoogleRoutesMatrix | None:
-    """Devuelve la matriz cacheada sólo si corresponde a las coordenadas actuales."""
     return load_cache(context.obras)
 
 
@@ -117,4 +117,5 @@ def run_optimization(
         travel_source=travel_source,
         unique_locations=unique_count,
         billed_elements=billed_elements,
+        evaluate_all=request.compare_all_scenarios,
     )

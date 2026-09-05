@@ -9,7 +9,7 @@ from src.optimizer import OptimizationRun
 
 def render_header() -> None:
     st.title("Optimización de inspecciones")
-    st.caption("Modelo V2 · Programación multi-recurso con Google Routes + OR-Tools / CP-SAT")
+    st.caption("Modelo V3 · Calidad operativa con Google Routes + OR-Tools / CP-SAT")
 
 
 def _travel_source_label(run: OptimizationRun | None) -> str:
@@ -24,15 +24,16 @@ def _travel_source_label(run: OptimizationRun | None) -> str:
 
 def render_kpis(context: OptimizationContext, run: OptimizationRun | None) -> None:
     best_days = "—"
-    lower_bound = "—"
+    quality_days = "—"
     travel_km = "—"
     travel_h = "—"
     if run is not None:
-        lower_bound = str(run.theoretical_lower_bound)
         if run.best is not None:
             best_days = str(run.best.dias)
             travel_km = f"{run.best.auditor_travel_km:.1f}"
             travel_h = f"{run.best.auditor_travel_min/60:.1f} h"
+        if run.quality_best is not None:
+            quality_days = str(run.quality_best.dias)
 
     proyectos = sum(
         getattr(o, "tipo_revision", TIPO_FISICA) == TIPO_PROYECTO
@@ -47,20 +48,22 @@ def render_kpis(context: OptimizationContext, run: OptimizationRun | None) -> No
     c4.metric("Ubicaciones únicas", context.unique_location_count)
 
     c5, c6, c7, c8 = st.columns(4)
-    c5.metric("Mínimo factible V2", best_days, help=f"Cota inferior teórica: {lower_bound} día(s)")
-    c6.metric("Km-auditor", travel_km, help="Suma de desplazamientos personales de auditores; no equivale aún a km-vehículo.")
-    c7.metric("Horas traslado auditores", travel_h)
-    c8.metric("Fuente de rutas", _travel_source_label(run))
+    c5.metric("Mínimo factible", best_days, help=f"Cota inferior teórica: {run.theoretical_lower_bound if run else '—'} día(s)")
+    c6.metric("Mejor calidad evaluada", quality_days, help="Escenario con menor costo operativo entre los días evaluados; no sustituye al mínimo factible.")
+    c7.metric("Km-auditor del mínimo", travel_km)
+    c8.metric("Traslado auditores del mínimo", travel_h)
+
+    st.caption(f"Fuente de rutas: {_travel_source_label(run)}")
 
 
 def render_v0_notice() -> None:
     st.markdown(
         """
         <div class="model-note">
-        <strong>Alcance V2:</strong> Google Routes puede proporcionar distancia y duración reales por red vial.
-        La matriz se calcula sólo para ubicaciones únicas, se guarda en caché y luego CP-SAT la usa como
-        restricción de traslado para auditores, supervisores y contratistas. El modo Haversine V1 permanece
-        disponible únicamente como respaldo técnico.
+        <strong>Alcance V3:</strong> Google Routes aporta tiempos y distancias por red vial y CP-SAT ya no busca
+        únicamente una agenda factible. Dentro de cada escenario también favorece menor dispersión geográfica,
+        mejor balance entre días y mejor reparto de carga. Después se calculan métricas reales de traslado,
+        espera, desequilibrio y cambios de acompañante para comparar la calidad operativa de 3, 4, 5... días.
         </div>
         """,
         unsafe_allow_html=True,

@@ -14,6 +14,7 @@ class OptimizationRun:
     theoretical_lower_bound: int
     scenarios: list[ScenarioResult] = field(default_factory=list)
     best: ScenarioResult | None = None
+    quality_best: ScenarioResult | None = None
     minimum_certified: bool = False
     travel_source: str = "haversine_v1"
     unique_locations: int | None = None
@@ -30,6 +31,7 @@ def find_minimum_feasible_days(
     travel_source: str = "haversine_v1",
     unique_locations: int | None = None,
     billed_elements: int = 0,
+    evaluate_all: bool = False,
 ) -> OptimizationRun:
     lower_bound = theoretical_lower_bound_days(obras, auditores, config)
     requested_min = min_days if min_days is not None else config.dias_min
@@ -50,11 +52,14 @@ def find_minimum_feasible_days(
         run.scenarios.append(result)
 
         if result.factible:
-            run.best = result
-            run.minimum_certified = earlier_all_proven_infeasible
-            break
-
-        if not result.probado_infactible:
+            if run.best is None:
+                run.best = result
+                run.minimum_certified = earlier_all_proven_infeasible
+            if run.quality_best is None or result.operational_cost < run.quality_best.operational_cost:
+                run.quality_best = result
+            if not evaluate_all:
+                break
+        elif not result.probado_infactible:
             earlier_all_proven_infeasible = False
 
     return run

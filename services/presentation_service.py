@@ -18,6 +18,11 @@ def build_scenarios_dataframe(run: OptimizationRun) -> pd.DataFrame:
             "Tiempo solver (s)": round(result.wall_time_seconds, 2),
             "Km-auditor": round(result.auditor_travel_km, 1) if result.factible else None,
             "Horas traslado auditor": round(result.auditor_travel_min / 60, 1) if result.factible else None,
+            "Espera auditor (h)": round(result.waiting_auditor_min / 60, 1) if result.factible else None,
+            "Desbalance día (h-auditor)": round(result.day_imbalance_min / 60, 1) if result.factible else None,
+            "Desbalance auditor (h)": round(result.auditor_imbalance_min / 60, 1) if result.factible else None,
+            "Cambios acompañante": result.companion_changes if result.factible else None,
+            "Costo operativo": round(result.operational_cost, 1) if result.factible else None,
             "Km supervisores": round(result.supervisor_travel_km, 1) if result.factible else None,
             "Km contratistas": round(result.contractor_travel_km, 1) if result.factible else None,
         })
@@ -34,11 +39,12 @@ def _equipo(item) -> str:
     return item.auditor_responsable
 
 
-def build_plan_dataframe(run: OptimizationRun, config: OptimizationConfig) -> pd.DataFrame:
-    if run.best is None:
+def build_plan_dataframe(run: OptimizationRun, config: OptimizationConfig, use_quality_best: bool = False) -> pd.DataFrame:
+    selected = run.quality_best if use_quality_best and run.quality_best is not None else run.best
+    if selected is None:
         return pd.DataFrame()
     rows = []
-    for item in run.best.plan:
+    for item in selected.plan:
         rows.append({
             "Día": item.dia,
             "Inicio": config.slot_a_hora(item.inicio_slot),
