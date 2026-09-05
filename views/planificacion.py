@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import streamlit as st
 
-from services.presentation_service import build_plan_dataframe, select_solution
+from services.presentation_service import build_plan_dataframe, build_vehicle_dataframe, select_solution
 from src.config import OptimizationConfig
 from src.optimizer import OptimizationRun
 
@@ -24,7 +24,7 @@ def render_planificacion(run: OptimizationRun | None, config: OptimizationConfig
         "Solución a visualizar",
         options=list(options.keys()),
         index=len(options) - 1,
-        help="La solución refinada ALNS conserva el mismo número de días de la mejor calidad CP-SAT y busca mejorar su costo operativo.",
+        help="La solución refinada ALNS conserva el mismo número de días y busca mejorar también la logística vehicular.",
     )
     mode = options[selected_label]
     selected_solution = select_solution(run, mode)
@@ -39,20 +39,39 @@ def render_planificacion(run: OptimizationRun | None, config: OptimizationConfig
         key=f"plan_day_filter_{mode}",
     )
     visible = plan_df if selected_day == "Todos" else plan_df[plan_df["Día"] == selected_day]
+    st.markdown("#### Actividades")
     st.dataframe(
         visible,
         use_container_width=True,
         hide_index=True,
-        column_config={
-            "Obra": st.column_config.TextColumn(width="large"),
-            "Prioridad": st.column_config.NumberColumn(format="%d"),
-        },
+        column_config={"Obra": st.column_config.TextColumn(width="large"), "Prioridad": st.column_config.NumberColumn(format="%d")},
     )
 
-    st.download_button(
-        "Descargar planeación CSV",
-        data=plan_df.to_csv(index=False).encode("utf-8-sig"),
-        file_name=f"planificacion_{mode}_{selected_solution.dias}_dias.csv",
-        mime="text/csv",
-        use_container_width=False,
-    )
+    vehicle_df = build_vehicle_dataframe(run, config, mode=mode)
+    st.markdown("#### Logística de vehículos")
+    if vehicle_df.empty:
+        st.info("No hay tramos vehiculares calculados para esta solución.")
+    else:
+        vehicle_visible = vehicle_df if selected_day == "Todos" else vehicle_df[vehicle_df["Día"] == selected_day]
+        st.dataframe(vehicle_visible, use_container_width=True, hide_index=True)
+        st.caption(
+            "Un viaje compartido agrupa hasta 4 auditores que realizan el mismo tramo en el mismo intervalo. "
+            "Un viaje individual indica que ese auditor necesita movilidad independiente en ese tramo."
+        )
+
+    c1, c2 = st.columns(2)
+    with c1:
+        st.download_button(
+            "Descargar planeación CSV",
+            data=plan_df.to_csv(index=False).encode("utf-8-sig"),
+            file_name=f"planificacion_{mode}_{selected_solution.dias}_dias.csv",
+            mime="text/csv",
+        )
+    with c2:
+        if not vehicle_df.empty:
+            st.download_button(
+                "Descargar logística vehicular CSV",
+                data=vehicle_df.to_csv(index=False).encode("utf-8-sig"),
+                file_name=f"vehiculos_{mode}_{selected_solution.dias}_dias.csv",
+                mime="text/csv",
+            )
