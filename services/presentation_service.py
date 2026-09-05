@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from collections import defaultdict
 from datetime import datetime
 
 import pandas as pd
@@ -92,37 +91,12 @@ def build_gantt_dataframe(
     return pd.DataFrame(rows)
 
 
-def build_workload_dataframe(run: OptimizationRun) -> pd.DataFrame:
-    if run.best is None:
-        return pd.DataFrame()
-
-    minutes = defaultdict(int)
-    responsible_minutes = defaultdict(int)
-    companion_minutes = defaultdict(int)
-
-    for item in run.best.plan:
-        duration = item.fin_slot - item.inicio_slot
-        minutes[item.auditor_responsable] += duration
-        minutes[item.auditor_acompanante] += duration
-        responsible_minutes[item.auditor_responsable] += duration
-        companion_minutes[item.auditor_acompanante] += duration
-
-    rows = []
-    for auditor in sorted(minutes):
-        rows.append(
-            {
-                "Auditor": auditor,
-                "Carga total (slots)": minutes[auditor],
-                "Como responsable (slots)": responsible_minutes[auditor],
-                "Como acompañante (slots)": companion_minutes[auditor],
-            }
-        )
-    return pd.DataFrame(rows)
-
-
-def build_map_dataframe(context: OptimizationContext, run: OptimizationRun) -> pd.DataFrame:
+def build_map_dataframe(
+    context: OptimizationContext,
+    run: OptimizationRun | None,
+) -> pd.DataFrame:
     assigned_day = {}
-    if run.best is not None:
+    if run is not None and run.best is not None:
         assigned_day = {item.obra_id: item.dia for item in run.best.plan}
 
     rows = []
