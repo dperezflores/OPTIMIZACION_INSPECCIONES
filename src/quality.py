@@ -7,6 +7,7 @@ from statistics import pstdev
 from .config import OptimizationConfig
 from .distance_matrix import TravelValue, calculate_plan_travel_metrics
 from .models import PlanItem, TIPO_FISICA
+from .vehicle_planner import calculate_vehicle_plan
 
 
 @dataclass(frozen=True)
@@ -16,13 +17,10 @@ class QualityMetrics:
     desbalance_auditor_min: float = 0.0
     cambios_acompanante: int = 0
     costo_operativo: float = 0.0
+    vehicle_rendezvous_issues: int = 0
 
 
-def _travel_minutes(
-    matrix: dict[tuple[str, str], TravelValue],
-    origin: str,
-    destination: str,
-) -> float:
+def _travel_minutes(matrix: dict[tuple[str, str], TravelValue], origin: str, destination: str) -> float:
     value = matrix.get((origin, destination))
     return value.tiempo_estimado_min if value else 0.0
 
@@ -43,7 +41,6 @@ def calculate_quality_metrics(
     matrix: dict[tuple[str, str], TravelValue],
     config: OptimizationConfig,
 ) -> QualityMetrics:
-    """Calcula calidad operativa comparable entre soluciones del mismo conjunto."""
     sequences = _auditor_sequences(plan)
     waiting = 0.0
     auditor_load: dict[str, float] = defaultdict(float)
@@ -63,7 +60,6 @@ def calculate_quality_metrics(
 
     day_values = list(day_load.values())
     day_imbalance = (max(day_values) - min(day_values)) if len(day_values) > 1 else 0.0
-
     auditor_values = list(auditor_load.values())
     auditor_imbalance = pstdev(auditor_values) if len(auditor_values) > 1 else 0.0
 
@@ -82,8 +78,8 @@ def calculate_quality_metrics(
             previous_companion = item.auditor_acompanante
 
     travel = calculate_plan_travel_metrics(plan, matrix)
+    vehicle = calculate_vehicle_plan(plan, matrix, config)
 
-    # Índice interno, sin unidades físicas. Menor = mejor para el mismo conjunto.
     operating_cost = (
         config.peso_calidad_traslado_auditor * travel.auditor_min
         + config.peso_calidad_traslado_supervisor * travel.supervisor_min
@@ -92,6 +88,10 @@ def calculate_quality_metrics(
         + config.peso_calidad_balance_dia * day_imbalance
         + config.peso_calidad_balance_auditor * auditor_imbalance
         + config.peso_calidad_cambio_acompanante * companion_changes
+        + config.peso_calidad_km_vehiculo * vehicle.vehicle_km
+        + config.peso_calidad_viaje_solo * vehicle.solo_legs
+        + config.peso_calidad_viaje_vehicular * vehicle.vehicle_trips
+        + 5000.0 * vehicle.rendezvous_issues
     )
 
     return QualityMetrics(
@@ -100,4 +100,5 @@ def calculate_quality_metrics(
         desbalance_auditor_min=auditor_imbalance,
         cambios_acompanante=companion_changes,
         costo_operativo=operating_cost,
+        vehicle_rendezvous_issues=vehicle.rendezvous_issues,
     )
