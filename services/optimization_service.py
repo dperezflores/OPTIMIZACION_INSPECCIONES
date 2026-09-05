@@ -9,6 +9,7 @@ from services.google_routes_service import (
     load_cache,
     unique_locations,
 )
+from src.alns import ALNSOptimizer
 from src.config import OptimizationConfig
 from src.data_loader import load_auditores, load_config, load_obras
 from src.models import Auditor, Obra
@@ -29,6 +30,10 @@ class OptimizationRequest:
     google_api_key: str | None = None
     force_refresh_routes: bool = False
     compare_all_scenarios: bool = True
+    use_alns: bool = True
+    alns_iterations: int = 20
+    alns_repair_time_seconds: float = 3.0
+    alns_destroy_fraction: float = 0.20
 
 
 @dataclass
@@ -76,10 +81,7 @@ def google_cache_status(context: OptimizationContext) -> GoogleRoutesMatrix | No
     return load_cache(context.obras)
 
 
-def run_optimization(
-    context: OptimizationContext,
-    request: OptimizationRequest,
-) -> OptimizationRun:
+def run_optimization(context: OptimizationContext, request: OptimizationRequest) -> OptimizationRun:
     if request.min_days < 1:
         raise ValueError("El mínimo de días debe ser al menos 1.")
     if request.max_days < request.min_days:
@@ -88,7 +90,6 @@ def run_optimization(
         raise ValueError("El tiempo límite debe ser mayor que cero.")
 
     config = replace(context.config, time_limit_seconds=request.time_limit_seconds)
-
     travel_matrix = None
     travel_source = TRAVEL_PROVIDER_HAVERSINE
     unique_count = context.unique_location_count
@@ -107,7 +108,7 @@ def run_optimization(
     elif request.travel_provider != TRAVEL_PROVIDER_HAVERSINE:
         raise ValueError(f"Proveedor de traslados no reconocido: {request.travel_provider!r}")
 
-    return find_minimum_feasible_days(
+    run = find_minimum_feasible_days(
         context.obras,
         context.auditores,
         config,
@@ -119,3 +120,19 @@ def run_optimization(
         billed_elements=billed_elements,
         evaluate_all=request.compare_all_scenarios,
     )
+
+    if request.use_alns and run.quality_best is not None:
+        matrix = travel_matrix
+        if matrix is None:
+            from src.distance_matrix import build_travel_matrix
+            matrix = build_travel_matrix(context.obras, config)
+        alns = ALNSOptimizer(context.obras, context.auditores, config, matrix)
+        result = alns.optimize(
+            run.quality_best,
+            iterations=max(1, int(request.alns_iterations)),
+            destroy_fraction=min(0.8, max(0.05, float(request.alns_destroy_fraction))),
+            repair_time_limit_seconds=max(0.5, float(request.alns_repair_time_seconds)),
+        )
+        run.alns_result = result
+        run.refined_best = result.best
+    return run
