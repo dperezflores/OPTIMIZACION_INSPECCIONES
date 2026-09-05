@@ -1,8 +1,17 @@
 from __future__ import annotations
 
+import os
+
 import streamlit as st
 
-from services.optimization_service import OptimizationRequest, load_context, run_optimization
+from services.optimization_service import (
+    OptimizationRequest,
+    TRAVEL_PROVIDER_GOOGLE,
+    TRAVEL_PROVIDER_HAVERSINE,
+    google_cache_status,
+    load_context,
+    run_optimization,
+)
 from ui.components import render_header, render_kpis, render_v0_notice
 from ui.styles import apply_styles
 from views.dashboard import render_dashboard
@@ -11,7 +20,18 @@ from views.mapa import render_mapa
 from views.planificacion import render_planificacion
 
 
-APP_SCHEMA_VERSION = "1.0.0"
+APP_SCHEMA_VERSION = "2.0.0"
+
+
+def _google_api_key() -> str:
+    value = os.getenv("GOOGLE_MAPS_API_KEY", "").strip()
+    if value:
+        return value
+    try:
+        return str(st.secrets.get("GOOGLE_MAPS_API_KEY", "")).strip()
+    except Exception:
+        return ""
+
 
 st.set_page_config(
     page_title="Optimización de inspecciones",
@@ -21,6 +41,8 @@ st.set_page_config(
 )
 apply_styles()
 context = load_context()
+google_key = _google_api_key()
+cache = google_cache_status(context)
 
 if st.session_state.get("app_schema_version") != APP_SCHEMA_VERSION:
     st.session_state.app_schema_version = APP_SCHEMA_VERSION
@@ -33,37 +55,96 @@ render_v0_notice()
 
 with st.sidebar:
     st.header("Parámetros de optimización")
-    min_days = st.number_input("Mínimo de días", min_value=1, max_value=15, value=int(context.config.dias_min), step=1)
-    max_days = st.number_input("Máximo de días", min_value=int(min_days), max_value=20, value=max(int(min_days), int(context.config.dias_max)), step=1)
+    min_days = st.number_input(
+        "Mínimo de días", min_value=1, max_value=15,
+        value=int(context.config.dias_min), step=1,
+    )
+    max_days = st.number_input(
+        "Máximo de días", min_value=int(min_days), max_value=20,
+        value=max(int(min_days), int(context.config.dias_max)), step=1,
+    )
     time_limit = st.number_input(
         "Tiempo máximo por escenario (s)", min_value=1.0, max_value=300.0,
         value=float(context.config.time_limit_seconds), step=5.0,
     )
+
+    st.markdown("#### Fuente de traslados")
+    provider_label = st.radio(
+        "Matriz de tiempos y distancias",
+        options=["Google Routes V2", "Haversine V1 (respaldo)"],
+        index=0,
+        help="Google Routes usa red vial real. Haversine queda sólo como modo de respaldo o prueba.",
+    )
+    travel_provider = (
+        TRAVEL_PROVIDER_GOOGLE
+        if provider_label.startswith("Google")
+        else TRAVEL_PROVIDER_HAVERSINE
+    )
+
+    if travel_provider == TRAVEL_PROVIDER_GOOGLE:
+        if cache is not None:
+            st.success(
+                f"Matriz Google disponible en caché para {cache.unique_locations} ubicaciones únicas."
+            )
+        elif google_key:
+            st.info(
+                f"No existe matriz Google para las coordenadas actuales. La primera optimización consultará "
+                f"Routes API para {context.unique_location_count} ubicaciones únicas y después guardará caché."
+            )
+        else:
+            st.error(
+                "No se encontró GOOGLE_MAPS_API_KEY en Streamlit Secrets ni en variables de entorno."
+            )
+
+        force_refresh = st.checkbox(
+            "Forzar actualización de matriz Google",
+            value=False,
+            help="Actívalo sólo si deseas volver a consultar Google aunque exista caché. Puede generar consumo adicional de API.",
+        )
+    else:
+        force_refresh = False
+        st.warning("Modo aproximado V1: no usa Google ni genera consumo de Routes API.")
+
     optimize = st.button("Optimizar planeación", type="primary", use_container_width=True)
 
     st.divider()
     st.caption(
         f"Jornada: {context.config.hora_inicio}–{context.config.hora_fin}\n\n"
-        f"Intervalo: {context.config.slot_minutos} min\n\n"
-        f"Factor vial V1: {context.config.factor_distancia_vial:.2f}\n\n"
-        f"Velocidad media V1: {context.config.velocidad_promedio_kmh:.0f} km/h\n\n"
-        "Motor: OR-Tools / CP-SAT"
+        f"Intervalo CP-SAT: {context.config.slot_minutos} min\n\n"
+        f"Ubicaciones únicas: {context.unique_location_count}\n\n"
+        "Motor: Google Routes + OR-Tools / CP-SAT"
     )
 
 if optimize:
-    request = OptimizationRequest(
-        min_days=int(min_days), max_days=int(max_days), time_limit_seconds=float(time_limit)
-    )
-    try:
-        with st.spinner("Calculando planeación con tiempos de traslado..."):
-            st.session_state.optimization_run = run_optimization(context, request)
-    except Exception as exc:
-        st.error(f"No fue posible ejecutar el modelo: {exc}")
+    if travel_provider == TRAVEL_PROVIDER_GOOGLE and not google_key:
+        st.error("No es posible usar Google Routes hasta configurar GOOGLE_MAPS_API_KEY.")
+    else:
+        request = OptimizationRequest(
+            min_days=int(min_days),
+            max_days=int(max_days),
+            time_limit_seconds=float(time_limit),
+            travel_provider=travel_provider,
+            google_api_key=google_key if travel_provider == TRAVEL_PROVIDER_GOOGLE else None,
+            force_refresh_routes=bool(force_refresh),
+        )
+        try:
+            message = (
+                "Consultando/reutilizando Google Routes y calculando la planeación..."
+                if travel_provider == TRAVEL_PROVIDER_GOOGLE
+                else "Calculando planeación con la aproximación geográfica V1..."
+            )
+            with st.spinner(message):
+                st.session_state.optimization_run = run_optimization(context, request)
+            st.rerun()
+        except Exception as exc:
+            st.error(f"No fue posible ejecutar el modelo: {exc}")
 
 run = st.session_state.optimization_run
 render_kpis(context, run)
 
-tab_resumen, tab_plan, tab_gantt, tab_mapa = st.tabs(["Resumen", "Planeación", "Cronograma", "Mapa"])
+tab_resumen, tab_plan, tab_gantt, tab_mapa = st.tabs(
+    ["Resumen", "Planeación", "Cronograma", "Mapa"]
+)
 with tab_resumen:
     render_dashboard(context, run)
 with tab_plan:
