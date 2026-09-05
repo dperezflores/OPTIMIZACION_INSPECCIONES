@@ -101,6 +101,7 @@ class ScenarioResult:
     day_imbalance_min: float = 0.0
     auditor_imbalance_min: float = 0.0
     companion_changes: int = 0
+    additional_travel_time_min: float = 0.0
     operational_cost: float = 0.0
 
     vehicle_km: float = 0.0
