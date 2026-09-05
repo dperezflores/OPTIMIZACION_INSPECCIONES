@@ -79,6 +79,11 @@ class ScenarioResult:
     supervisor_travel_min: float = 0.0
     contractor_travel_km: float = 0.0
     contractor_travel_min: float = 0.0
+    waiting_auditor_min: float = 0.0
+    day_imbalance_min: float = 0.0
+    auditor_imbalance_min: float = 0.0
+    companion_changes: int = 0
+    operational_cost: float = 0.0
 
     @property
     def probado_infactible(self) -> bool:
