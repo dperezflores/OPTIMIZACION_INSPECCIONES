@@ -54,22 +54,33 @@ jobs:
             --time-limit 15 \
             --output-dir /tmp/model-output-5
 
-      - name: Integración V4 CP-SAT + ALNS con 44 actividades
+      - name: Integración V5 CP-SAT + ALNS + ruteo vehicular con 44 actividades
         run: |
           python - <<'PY'
+          from collections import Counter
+          from dataclasses import replace
+
           from services.optimization_service import (
               OptimizationRequest,
               TRAVEL_PROVIDER_HAVERSINE,
               load_context,
               run_optimization,
           )
+          from src.distance_matrix import build_travel_matrix
+          from src.vehicle_planner import calculate_legacy_vehicle_plan, calculate_vehicle_plan
+
           context = load_context()
+          context.config = replace(
+              context.config,
+              vehicle_routing_time_limit_seconds=0.6,
+          )
+
           run = run_optimization(
               context,
               OptimizationRequest(
                   min_days=4,
                   max_days=4,
-                  time_limit_seconds=15,
+                  time_limit_seconds=30,
                   travel_provider=TRAVEL_PROVIDER_HAVERSINE,
                   compare_all_scenarios=False,
                   use_alns=True,
@@ -84,6 +95,26 @@ jobs:
           assert len(run.refined_best.plan) == 44
           assert run.refined_best.dias == 4
           assert run.refined_best.operational_cost <= run.quality_best.operational_cost + 1e-9
+
+          counts = Counter(item.dia for item in run.quality_best.plan)
+          per_day = [counts.get(day, 0) for day in range(1, 5)]
+          day_max = max(per_day)
+          day_min = min(per_day)
+
+          cfg = replace(context.config, time_limit_seconds=30)
+          matrix = build_travel_matrix(context.obras, cfg)
+          final_plan = run.refined_best.plan
+          legacy = calculate_legacy_vehicle_plan(final_plan, matrix, cfg)
+          routed = calculate_vehicle_plan(final_plan, matrix, cfg)
+
+          assert routed.vehicles_required_peak <= legacy.vehicles_required_peak
+          assert routed.solo_legs <= legacy.solo_legs
+
           print('CP-SAT:', round(run.quality_best.operational_cost, 2))
           print('ALNS:', round(run.refined_best.operational_cost, 2))
+          print('ACTIVIDADES_POR_DIA:', per_day)
+          print('DIA_MAX_MIN:', day_max, day_min)
+          print('VEHICULOS_PEAK_ANTES_DESPUES:', legacy.vehicles_required_peak, routed.vehicles_required_peak)
+          print('VIAJES_SOLO_ANTES_DESPUES:', legacy.solo_legs, routed.solo_legs)
+          print('KM_VEHICULO_ANTES_DESPUES:', round(legacy.vehicle_km, 1), round(routed.vehicle_km, 1))
           PY

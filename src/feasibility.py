@@ -46,8 +46,6 @@ class FeasibilitySolver:
         self.config = config
         self.auditor_ids = sorted(a.auditor_id for a in self.auditores)
         self.travel_matrix = travel_matrix if travel_matrix is not None else build_travel_matrix(obras, config)
-        # El switch existe para pruebas de regresión contra el objetivo histórico.
-        # Producción usa siempre True.
         self.enable_travel_objective = enable_travel_objective
 
     def _add_resource_travel_constraints(
@@ -75,12 +73,7 @@ class FeasibilitySolver:
                     )
 
     def _travel_cost_coefficient(self, origin_id: str, destination_id: str, weight: float) -> int:
-        """Devuelve costo CP-SAT en minutos discretizados, no en slots.
-
-        Las restricciones de precedencia ya redondean el traslado a slots mediante
-        travel_slots(). Para no mezclar unidades, el objetivo reconvierte esos slots
-        a minutos antes de aplicar el mismo peso utilizado por quality.py.
-        """
+        """Devuelve costo CP-SAT en minutos discretizados, no en slots."""
         slots = travel_slots(self.travel_matrix, origin_id, destination_id, self.config)
         minutes = slots * self.config.slot_minutos
         return int(round(float(weight) * minutes * OBJECTIVE_SCALE))
@@ -95,15 +88,7 @@ class FeasibilitySolver:
         include_depot: bool,
         prefix: str,
     ) -> None:
-        """Modela el traslado entre actividades consecutivas de cada recurso.
-
-        Un AddCircuit opcional identifica exactamente el sucesor inmediato de cada
-        actividad presente. Así sólo se cobra el viaje realmente consecutivo y no
-        todas las parejas de actividades del mismo día. Para auditores el nodo 0
-        representa ASEG y cobra salida/regreso; para supervisores y contratistas ese
-        nodo es únicamente un auxiliar de secuencia y sus arcos cuestan cero, igual
-        que calculate_plan_travel_metrics().
-        """
+        """Modela el traslado entre actividades consecutivas de cada recurso."""
         if weight <= 0:
             return
 
@@ -113,12 +98,10 @@ class FeasibilitySolver:
 
             any_present = model.new_bool_var(f"{prefix}_any__{resource_id}__d{day}")
             model.add_max_equality(any_present, [present for _, _, _, present in items])
-
             arcs: list[tuple[int, int, cp_model.IntVar]] = [(0, 0, any_present.Not())]
 
             for i, (obra_i, start_i, dur_i, present_i) in enumerate(items, start=1):
                 arcs.append((i, i, present_i.Not()))
-
                 from_dummy = model.new_bool_var(f"{prefix}_arc__{resource_id}__d{day}__0__{i}")
                 to_dummy = model.new_bool_var(f"{prefix}_arc__{resource_id}__d{day}__{i}__0")
                 arcs.append((0, i, from_dummy))
@@ -137,14 +120,11 @@ class FeasibilitySolver:
                         continue
                     arc = model.new_bool_var(f"{prefix}_arc__{resource_id}__d{day}__{i}__{j}")
                     arcs.append((i, j, arc))
-
                     tij = travel_slots(self.travel_matrix, obra_i.obra_id, obra_j.obra_id, self.config)
                     model.add(start_j >= start_i + dur_i + tij).only_enforce_if(arc)
-
                     cost = self._travel_cost_coefficient(obra_i.obra_id, obra_j.obra_id, weight)
                     if cost:
                         travel_objective_terms.append(cost * arc)
-
             model.add_circuit(arcs)
 
     def _add_geographic_dispersion_objective(
@@ -243,10 +223,21 @@ class FeasibilitySolver:
         objective_terms = []
         travel_objective_terms = []
 
+        prioridad_promedio = (
+            sum(float(obra.prioridad) for obra in self.obras) / len(self.obras)
+            if self.obras
+            else float(self.config.prioridad_default)
+        )
+
         for obra in self.obras:
             obra_key = obra.obra_id
             duration = self.config.minutos_a_slots(obra.duracion_minutos)
             day_vars = []
+            # Coeficiente ya expresado en la misma escala que los pesos de balance:
+            # delta=1 y peso=30 producen ~30 puntos por día, no 300.
+            prioridad_centrada_coef = int(
+                round((float(obra.prioridad) - prioridad_promedio) * self.config.peso_obj_prioridad_dia)
+            )
             for d in days:
                 y = model.new_bool_var(f"obra__{obra_key}__d{d}")
                 assign[(obra_key, d)] = y
@@ -289,7 +280,8 @@ class FeasibilitySolver:
                             objective_terms.append(self.config.peso_obj_supervisor_alternativo * z)
                     model.add(sum(z_vars) == y)
 
-                objective_terms.append((d * obra.prioridad * self.config.peso_obj_prioridad_dia) * y)
+                if prioridad_centrada_coef:
+                    objective_terms.append((d * prioridad_centrada_coef) * y)
                 objective_terms.append(self.config.peso_obj_inicio_temprano * s)
             model.add_exactly_one(day_vars)
 
@@ -329,8 +321,6 @@ class FeasibilitySolver:
             model.minimize(OBJECTIVE_SCALE * sum(objective_terms) + sum(travel_objective_terms))
             objective_scale = OBJECTIVE_SCALE
         else:
-            # Mantiene exactamente el objetivo histórico cuando el término de viaje
-            # está deshabilitado (útil para la prueba de regresión).
             model.minimize(sum(objective_terms))
             objective_scale = 1
 

@@ -22,8 +22,10 @@ Actualmente considera:
 - contratista como recurso sincronizado;
 - tiempos de traslado para auditores, supervisores y contratistas;
 - matriz real de distancia y duración por red vial mediante **Google Routes Compute Route Matrix**;
-- vehículos con capacidad de 4 pasajeros, compartidos cuando es compatible;
-- viajes individuales permitidos cuando son necesarios, pero penalizados;
+- vehículos con capacidad de 4 pasajeros;
+- ruteo vehicular con **pickup-and-delivery y paradas intermedias**;
+- mínimo número de vehículos como primer objetivo del subproblema vehicular y, con ese mínimo fijado, menor km/tiempo como segundo objetivo;
+- viajes individuales permitidos sólo cuando no existe una ruta compartida compatible con capacidad y horarios;
 - cálculo separado de km-auditor y km-vehículo;
 - refinamiento ALNS activo por defecto (`use_alns=True`);
 - respaldo V1 mediante Haversine ajustado cuando se desea probar sin consumir API.
@@ -32,7 +34,7 @@ Actualmente considera:
 
 CP-SAT mantiene todas las restricciones duras de agenda y sincronización. Su objetivo interno incluye:
 
-- prioridad por día;
+- prioridad por día **centrada respecto al promedio de prioridad del lote**;
 - dispersión geográfica;
 - balance entre días;
 - balance entre auditores;
@@ -41,6 +43,8 @@ CP-SAT mantiene todas las restricciones duras de agenda y sincronización. Su ob
 - **minutos de traslado consecutivo de auditores**;
 - **minutos de traslado consecutivo de supervisores**;
 - **minutos de traslado consecutivo de contratistas**.
+
+La prioridad centrada evita que un lote homogéneo (por ejemplo, todas las actividades con prioridad 3) reciba por sí mismo un empuje artificial hacia el día 1. Sólo las actividades cuya prioridad se separa del promedio tienen incentivo temporal: las de mayor prioridad se favorecen antes y las de menor prioridad pueden desplazarse después. Los pesos de prioridad y balance se mantienen deliberadamente en el mismo orden de magnitud; `src/config.py` documenta rangos relativos recomendados.
 
 Los traslados incluidos en el objetivo usan la misma matriz de rutas y la misma discretización temporal que las restricciones de precedencia. Para auditores se incluyen también ASEG → primera actividad y última actividad → ASEG.
 
@@ -52,6 +56,36 @@ Los componentes que dependen de la solución completa o de decisiones logística
 - tiempo adicional fuera de la ventana 08:00–17:00;
 - cambios de acompañante;
 - balance operativo final.
+
+## Ruteo vehicular V5
+
+`src/vehicle_planner.py` construye las rutas **después** de que `FeasibilitySolver` fija el calendario. El ruteo no modifica quién hace qué actividad, ni el día, ni la hora.
+
+Para cada día se generan solicitudes de transporte de cada auditor entre ASEG y sus actividades. OR-Tools resuelve un problema pickup-and-delivery con ventanas de tiempo y capacidad. Esto permite rutas como:
+
+```text
+ASEG (A+B+C+D)
+  ↓
+Obras Públicas (bajan C+D)
+  ↓
+Inspección física (continúan A+B)
+  ↓
+Obras Públicas (recoge C+D)
+  ↓
+ASEG (A+B+C+D)
+```
+
+Reglas principales:
+
+- capacidad máxima: `capacidad_vehiculo = 4`;
+- espera máxima de una persona lista para ser recogida en una parada intermedia: `espera_maxima_parada_intermedia_min = 90` por defecto;
+- el vehículo puede permanecer estacionado durante una actividad completa; el límite anterior aplica a la persona que espera recogida, no al vehículo;
+- responsable y acompañante de una inspección física deben llegar en el mismo vehículo;
+- el solver prueba 1 vehículo, luego 2, luego 3, etc.; el primer número factible es el mínimo;
+- con ese mínimo fijado se ejecuta una segunda optimización para reducir km/tiempo total;
+- si el subsolver no concluye dentro del límite configurado, existe un fallback conservador para no romper `quality.py` ni el dashboard.
+
+El agrupador V5 anterior por coincidencia exacta se conserva únicamente como referencia de regresión/benchmark; producción usa el ruteo optimizado.
 
 ## Google Routes V2
 
@@ -170,5 +204,5 @@ docs/
 3. **V2 — Red vial:** completada con Google Routes y caché.
 4. **V3 — Calidad multiobjetivo:** completada; CP-SAT compara escenarios con criterios operativos.
 5. **V4 — Metaheurística ALNS:** completada e integrada; ALNS refina la mejor solución CP-SAT y está activo por defecto.
-6. **V5 — Depósito ASEG y logística vehicular:** completada; incorpora salida/regreso, vehículos compartidos, viajes individuales y métricas km-vehículo.
+6. **V5 — Depósito ASEG y logística vehicular:** completada; incorpora salida/regreso, ruteo pickup-and-delivery, mínimo de vehículos, viajes compartidos/individuales y métricas km-vehículo.
 7. **Siguiente evolución:** representación operativa final, explicación de rutas/vehículos y, si se requiere, mayor persistencia de matrices y escenarios.

@@ -27,11 +27,23 @@ class OptimizationConfig:
     velocidad_promedio_kmh: float = 35.0
     penalizacion_geografica: int = 1
 
-    # V3: función objetivo de calidad dentro de cada escenario de días.
-    peso_obj_prioridad_dia: int = 120
+    # V3/V5: función objetivo de calidad dentro de cada escenario de días.
+    # La prioridad se aplica CENTRADA respecto al promedio del lote: una obra con
+    # prioridad promedio no recibe empuje hacia el día 1. El peso de prioridad es
+    # razonable cuando está aproximadamente entre 0.5x y 1.5x el peso de balance
+    # diario; valores mucho mayores vuelven a amontonar obras tempranamente.
+    peso_obj_prioridad_dia: int = 30
     peso_obj_dispersion_geografica: int = 2
-    peso_obj_balance_dia: int = 20
-    peso_obj_balance_auditor: int = 8
+
+    # Balance diario debe ser del mismo orden que prioridad. Un rango práctico es
+    # 0.7x-2.0x peso_obj_prioridad_dia: por debajo suele tolerar jornadas muy
+    # desiguales; muy por encima puede sacrificar prioridad/geografía por simetría.
+    peso_obj_balance_dia: int = 40
+
+    # Balance entre auditores es secundario respecto al balance entre días porque
+    # cada auditor ya tiene distinta carga responsable. Un rango razonable es
+    # 0.25x-0.75x peso_obj_balance_dia.
+    peso_obj_balance_auditor: int = 15
     peso_obj_inicio_temprano: int = 1
     peso_obj_supervisor_alternativo: int = 5
 
@@ -49,6 +61,14 @@ class OptimizationConfig:
     peso_calidad_km_vehiculo: float = 1.5
     peso_calidad_viaje_solo: float = 12.0
     peso_calidad_viaje_vehicular: float = 2.0
+
+    # Máximo que un auditor puede quedar esperando en una parada intermedia después
+    # de terminar una actividad para ser recogido por un vehículo compartido.
+    espera_maxima_parada_intermedia_min: int = 90
+
+    # Presupuesto de cómputo del subproblema vehicular POR DÍA. El ruteo primero
+    # busca el mínimo número de vehículos y después minimiza distancia/tiempo.
+    vehicle_routing_time_limit_seconds: float = 2.0
 
     # La ventana 08:00-17:00 sigue siendo la ventana de actividades. Los traslados
     # desde/hacia ASEG pueden extenderla y se penalizan para que sólo ocurra cuando
