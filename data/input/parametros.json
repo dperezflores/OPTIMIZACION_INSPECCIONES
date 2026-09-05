@@ -7,5 +7,5 @@
   "time_limit_seconds": 30,
   "num_search_workers": 8,
   "prioridad_default": 3,
-  "modo_parejas": "estables_por_dia"
+  "modo_parejas": "dinamicas_por_inspeccion"
 }

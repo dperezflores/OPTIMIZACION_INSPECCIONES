@@ -9,7 +9,7 @@ from src.optimizer import OptimizationRun
 
 
 def render_gantt(run: OptimizationRun | None, config: OptimizationConfig) -> None:
-    st.subheader("Cronograma de inspecciones")
+    st.subheader("Cronograma de actividades")
 
     if run is None or run.best is None:
         st.info("No hay una solución disponible para mostrar.")
@@ -31,15 +31,15 @@ def render_gantt(run: OptimizationRun | None, config: OptimizationConfig) -> Non
         visible,
         x_start="Inicio",
         x_end="Fin",
-        y="Pareja",
-        color="Responsable",
+        y="Equipo",
+        color="Tipo",
         hover_name="Obra",
-        hover_data={"Día": True, "Responsable": True},
+        hover_data={"Día": True, "Responsable": True, "Tipo": True},
     )
     fig.update_yaxes(autorange="reversed")
     fig.update_layout(
-        height=max(420, 80 + 55 * max(1, visible["Pareja"].nunique())),
-        legend_title_text="Responsable",
+        height=max(420, 80 + 55 * max(1, visible["Equipo"].nunique())),
+        legend_title_text="Tipo de revisión",
         margin=dict(l=20, r=20, t=30, b=20),
     )
     st.plotly_chart(fig, use_container_width=True)

@@ -4,9 +4,13 @@ from dataclasses import dataclass, field
 from typing import Optional, Tuple
 
 
+TIPO_PROYECTO = "PROYECTO_DOCUMENTAL"
+TIPO_FISICA = "INSPECCION_FISICA"
+
+
 @dataclass(frozen=True)
 class Obra:
-    """Inspección de una obra o proyecto ejecutivo."""
+    """Actividad de revisión: proyecto documental o inspección física."""
 
     obra_id: str
     contrato: str
@@ -20,16 +24,22 @@ class Obra:
     contratista_id: Optional[str] = None
     prioridad: int = 3
     tipo_inspeccion: str = ""
+    tipo_revision: str = TIPO_FISICA
+
+    @property
+    def requiere_acompanante(self) -> bool:
+        return self.tipo_revision == TIPO_FISICA
+
+    @property
+    def auditores_requeridos(self) -> int:
+        return 2 if self.requiere_acompanante else 1
 
     @property
     def supervisores_candidatos(self) -> Tuple[str, ...]:
         candidatos = []
         if self.supervisor_preferente_id:
             candidatos.append(self.supervisor_preferente_id)
-        candidatos.extend(
-            s for s in self.supervisores_alternativos_ids
-            if s and s not in candidatos
-        )
+        candidatos.extend(s for s in self.supervisores_alternativos_ids if s and s not in candidatos)
         return tuple(candidatos)
 
 
@@ -50,10 +60,11 @@ class PlanItem:
     inicio_slot: int
     fin_slot: int
     auditor_responsable: str
-    auditor_acompanante: str
+    auditor_acompanante: Optional[str]
     supervisor_seleccionado: Optional[str]
     contratista_id: Optional[str]
     prioridad: int
+    tipo_revision: str
 
 
 @dataclass

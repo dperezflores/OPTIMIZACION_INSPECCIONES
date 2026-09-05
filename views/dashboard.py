@@ -28,7 +28,7 @@ def render_dashboard(context: OptimizationContext, run: OptimizationRun | None) 
             else "primera solución factible encontrada"
         )
         st.success(
-            f"La V0 encontró una solución de {run.best.dias} día(s): {certification}."
+            f"La V0.1 encontró una solución de {run.best.dias} día(s): {certification}."
         )
 
     scenarios = build_scenarios_dataframe(run)
@@ -39,5 +39,6 @@ def render_dashboard(context: OptimizationContext, run: OptimizationRun | None) 
     st.write(
         f"Jornada: **{context.config.hora_inicio}–{context.config.hora_fin}** · "
         f"Intervalo: **{context.config.slot_minutos} min** · "
-        "Parejas estables dentro de cada jornada · Traslados todavía no incluidos."
+        "Proyecto documental: **1 auditor** · Inspección física: **2 auditores** · "
+        "Acompañante dinámico por inspección · Traslados todavía no incluidos."
     )
