@@ -103,13 +103,13 @@ class ScenarioResult:
     companion_changes: int = 0
     operational_cost: float = 0.0
 
-    # V5: movilidad desde/hacia ASEG y uso compartido de vehículos.
     vehicle_km: float = 0.0
     vehicle_travel_min: float = 0.0
     vehicle_trips: int = 0
     vehicles_required_peak: int = 0
     solo_vehicle_legs: int = 0
     shared_vehicle_legs: int = 0
+    vehicle_rendezvous_issues: int = 0
     vehicle_plan: list[VehicleLeg] = field(default_factory=list)
 
     @property
