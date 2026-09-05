@@ -19,6 +19,7 @@ def build_scenarios_dataframe(run: OptimizationRun) -> pd.DataFrame:
             "Tiempo solver (s)": round(result.wall_time_seconds, 2),
             "Km-auditor": round(result.auditor_travel_km, 1) if result.factible else None,
             "Horas traslado auditor": round(result.auditor_travel_min / 60, 1) if result.factible else None,
+            "Tiempo adicional ASEG (h-auditor)": round(result.additional_travel_time_min / 60, 1) if result.factible else None,
             "Km-vehículo": round(result.vehicle_km, 1) if result.factible else None,
             "Viajes vehículo": result.vehicle_trips if result.factible else None,
             "Viajes solo": result.solo_vehicle_legs if result.factible else None,
