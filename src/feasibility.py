@@ -6,10 +6,17 @@ from typing import Optional
 from ortools.sat.python import cp_model
 
 from .config import OptimizationConfig
+from .depot import DEPOT_ID
 from .distance_matrix import TravelValue, build_travel_matrix, calculate_plan_travel_metrics, travel_slots
 from .models import Auditor, Obra, PlanItem, ScenarioResult
 from .quality import calculate_quality_metrics
 from .vehicle_planner import calculate_vehicle_plan
+
+
+# CP-SAT trabaja con coeficientes enteros. Escalamos todo el objetivo cuando
+# incorporamos pesos decimales de quality.py para conservar las proporciones del
+# objetivo histórico y poder representar, por ejemplo, pesos de 0.4.
+OBJECTIVE_SCALE = 1000
 
 
 class FeasibilitySolver:
@@ -19,6 +26,10 @@ class FeasibilitySolver:
     ASEG forman parte de la logística completa; si requieren salir antes de las 08:00
     o regresar después de las 17:00, se contabilizan como tiempo adicional y reciben
     una penalización fuerte de calidad en vez de volver imposible toda la agenda.
+
+    El objetivo interno incluye ahora el traslado consecutivo de auditores,
+    supervisores y contratistas. Los términos de vehículo, espera agregada y tiempo
+    adicional de depósito siguen evaluándose después y son refinados por ALNS.
     """
 
     def __init__(
@@ -27,12 +38,17 @@ class FeasibilitySolver:
         auditores: list[Auditor],
         config: OptimizationConfig,
         travel_matrix: dict[tuple[str, str], TravelValue] | None = None,
+        *,
+        enable_travel_objective: bool = True,
     ) -> None:
         self.obras = obras
         self.auditores = [a for a in auditores if a.disponible]
         self.config = config
         self.auditor_ids = sorted(a.auditor_id for a in self.auditores)
         self.travel_matrix = travel_matrix if travel_matrix is not None else build_travel_matrix(obras, config)
+        # El switch existe para pruebas de regresión contra el objetivo histórico.
+        # Producción usa siempre True.
+        self.enable_travel_objective = enable_travel_objective
 
     def _add_resource_travel_constraints(
         self,
@@ -57,6 +73,79 @@ class FeasibilitySolver:
                     model.add(start_i >= start_j + dur_j + tji).only_enforce_if(
                         [present_i, present_j, order_ij.Not()]
                     )
+
+    def _travel_cost_coefficient(self, origin_id: str, destination_id: str, weight: float) -> int:
+        """Devuelve costo CP-SAT en minutos discretizados, no en slots.
+
+        Las restricciones de precedencia ya redondean el traslado a slots mediante
+        travel_slots(). Para no mezclar unidades, el objetivo reconvierte esos slots
+        a minutos antes de aplicar el mismo peso utilizado por quality.py.
+        """
+        slots = travel_slots(self.travel_matrix, origin_id, destination_id, self.config)
+        minutes = slots * self.config.slot_minutos
+        return int(round(float(weight) * minutes * OBJECTIVE_SCALE))
+
+    def _add_resource_travel_objective(
+        self,
+        model: cp_model.CpModel,
+        resource_items: dict[tuple[str, int], list[tuple[Obra, cp_model.IntVar, int, cp_model.IntVar]]],
+        travel_objective_terms: list,
+        *,
+        weight: float,
+        include_depot: bool,
+        prefix: str,
+    ) -> None:
+        """Modela el traslado entre actividades consecutivas de cada recurso.
+
+        Un AddCircuit opcional identifica exactamente el sucesor inmediato de cada
+        actividad presente. Así sólo se cobra el viaje realmente consecutivo y no
+        todas las parejas de actividades del mismo día. Para auditores el nodo 0
+        representa ASEG y cobra salida/regreso; para supervisores y contratistas ese
+        nodo es únicamente un auxiliar de secuencia y sus arcos cuestan cero, igual
+        que calculate_plan_travel_metrics().
+        """
+        if weight <= 0:
+            return
+
+        for (resource_id, day), items in resource_items.items():
+            if not items:
+                continue
+
+            any_present = model.new_bool_var(f"{prefix}_any__{resource_id}__d{day}")
+            model.add_max_equality(any_present, [present for _, _, _, present in items])
+
+            arcs: list[tuple[int, int, cp_model.IntVar]] = [(0, 0, any_present.Not())]
+
+            for i, (obra_i, start_i, dur_i, present_i) in enumerate(items, start=1):
+                arcs.append((i, i, present_i.Not()))
+
+                from_dummy = model.new_bool_var(f"{prefix}_arc__{resource_id}__d{day}__0__{i}")
+                to_dummy = model.new_bool_var(f"{prefix}_arc__{resource_id}__d{day}__{i}__0")
+                arcs.append((0, i, from_dummy))
+                arcs.append((i, 0, to_dummy))
+
+                if include_depot:
+                    outbound_cost = self._travel_cost_coefficient(DEPOT_ID, obra_i.obra_id, weight)
+                    inbound_cost = self._travel_cost_coefficient(obra_i.obra_id, DEPOT_ID, weight)
+                    if outbound_cost:
+                        travel_objective_terms.append(outbound_cost * from_dummy)
+                    if inbound_cost:
+                        travel_objective_terms.append(inbound_cost * to_dummy)
+
+                for j, (obra_j, start_j, _dur_j, _present_j) in enumerate(items, start=1):
+                    if i == j:
+                        continue
+                    arc = model.new_bool_var(f"{prefix}_arc__{resource_id}__d{day}__{i}__{j}")
+                    arcs.append((i, j, arc))
+
+                    tij = travel_slots(self.travel_matrix, obra_i.obra_id, obra_j.obra_id, self.config)
+                    model.add(start_j >= start_i + dur_i + tij).only_enforce_if(arc)
+
+                    cost = self._travel_cost_coefficient(obra_i.obra_id, obra_j.obra_id, weight)
+                    if cost:
+                        travel_objective_terms.append(cost * arc)
+
+            model.add_circuit(arcs)
 
     def _add_geographic_dispersion_objective(
         self,
@@ -152,6 +241,7 @@ class FeasibilitySolver:
         contractor_items = defaultdict(list)
         supervisor_items = defaultdict(list)
         objective_terms = []
+        travel_objective_terms = []
 
         for obra in self.obras:
             obra_key = obra.obra_id
@@ -208,7 +298,41 @@ class FeasibilitySolver:
         self._add_resource_travel_constraints(model, supervisor_items)
         self._add_geographic_dispersion_objective(model, assign, days, objective_terms)
         self._add_balance_objective(model, auditor_items, days, objective_terms)
-        model.minimize(sum(objective_terms))
+
+        if self.enable_travel_objective:
+            self._add_resource_travel_objective(
+                model,
+                auditor_items,
+                travel_objective_terms,
+                weight=self.config.peso_calidad_traslado_auditor,
+                include_depot=True,
+                prefix="audtravel",
+            )
+            self._add_resource_travel_objective(
+                model,
+                supervisor_items,
+                travel_objective_terms,
+                weight=self.config.peso_calidad_traslado_supervisor,
+                include_depot=False,
+                prefix="suptravel",
+            )
+            self._add_resource_travel_objective(
+                model,
+                contractor_items,
+                travel_objective_terms,
+                weight=self.config.peso_calidad_traslado_contratista,
+                include_depot=False,
+                prefix="contravel",
+            )
+
+        if travel_objective_terms:
+            model.minimize(OBJECTIVE_SCALE * sum(objective_terms) + sum(travel_objective_terms))
+            objective_scale = OBJECTIVE_SCALE
+        else:
+            # Mantiene exactamente el objetivo histórico cuando el término de viaje
+            # está deshabilitado (útil para la prueba de regresión).
+            model.minimize(sum(objective_terms))
+            objective_scale = 1
 
         solver = cp_model.CpSolver()
         solver.parameters.max_time_in_seconds = self.config.time_limit_seconds
@@ -222,7 +346,7 @@ class FeasibilitySolver:
             status=status_name,
             factible=factible,
             wall_time_seconds=solver.wall_time,
-            objective_value=solver.objective_value if factible else None,
+            objective_value=(solver.objective_value / objective_scale) if factible else None,
             plan=[],
         )
         if not factible:
