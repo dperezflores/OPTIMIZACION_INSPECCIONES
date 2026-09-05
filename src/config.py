@@ -19,7 +19,7 @@ class OptimizationConfig:
     time_limit_seconds: float = 30.0
     num_search_workers: int = 8
     prioridad_default: int = 3
-    modo_parejas: str = "estables_por_dia"
+    modo_parejas: str = "dinamicas_por_inspeccion"
 
     @property
     def minutos_jornada(self) -> int:
@@ -35,13 +35,10 @@ class OptimizationConfig:
         if self.slot_minutos <= 0:
             raise ValueError("slot_minutos debe ser mayor que cero.")
         if self.minutos_jornada % self.slot_minutos != 0:
-            raise ValueError(
-                "La jornada debe ser divisible exactamente entre slot_minutos."
-            )
+            raise ValueError("La jornada debe ser divisible exactamente entre slot_minutos.")
         return self.minutos_jornada // self.slot_minutos
 
     def minutos_a_slots(self, minutos: int) -> int:
-        """Redondea hacia arriba para nunca subestimar una inspección."""
         return max(1, math.ceil(minutos / self.slot_minutos))
 
     def slot_a_hora(self, slot: int) -> str:
