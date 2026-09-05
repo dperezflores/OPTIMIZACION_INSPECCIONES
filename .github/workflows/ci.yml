@@ -24,3 +24,11 @@ jobs:
 
       - name: Ejecutar pruebas
         run: pytest -q
+
+      - name: Prueba de integración con las 44 inspecciones
+        run: |
+          python main.py \
+            --min-days 2 \
+            --max-days 6 \
+            --time-limit 10 \
+            --output-dir /tmp/model-output
