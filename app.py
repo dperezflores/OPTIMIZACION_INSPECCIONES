@@ -20,7 +20,7 @@ from views.mapa import render_mapa
 from views.planificacion import render_planificacion
 
 
-APP_SCHEMA_VERSION = "2.0.0"
+APP_SCHEMA_VERSION = "3.0.0"
 
 
 def _google_api_key() -> str:
@@ -67,6 +67,11 @@ with st.sidebar:
         "Tiempo máximo por escenario (s)", min_value=1.0, max_value=300.0,
         value=float(context.config.time_limit_seconds), step=5.0,
     )
+    compare_all = st.checkbox(
+        "Comparar todos los escenarios del rango",
+        value=True,
+        help="Si está activo, no se detiene al encontrar el mínimo: también resuelve 4, 5, 6... días para comparar calidad operativa.",
+    )
 
     st.markdown("#### Fuente de traslados")
     provider_label = st.radio(
@@ -83,18 +88,14 @@ with st.sidebar:
 
     if travel_provider == TRAVEL_PROVIDER_GOOGLE:
         if cache is not None:
-            st.success(
-                f"Matriz Google disponible en caché para {cache.unique_locations} ubicaciones únicas."
-            )
+            st.success(f"Matriz Google disponible en caché para {cache.unique_locations} ubicaciones únicas.")
         elif google_key:
             st.info(
                 f"No existe matriz Google para las coordenadas actuales. La primera optimización consultará "
                 f"Routes API para {context.unique_location_count} ubicaciones únicas y después guardará caché."
             )
         else:
-            st.error(
-                "No se encontró GOOGLE_MAPS_API_KEY en Streamlit Secrets ni en variables de entorno."
-            )
+            st.error("No se encontró GOOGLE_MAPS_API_KEY en Streamlit Secrets ni en variables de entorno.")
 
         force_refresh = st.checkbox(
             "Forzar actualización de matriz Google",
@@ -105,14 +106,14 @@ with st.sidebar:
         force_refresh = False
         st.warning("Modo aproximado V1: no usa Google ni genera consumo de Routes API.")
 
-    optimize = st.button("Optimizar planeación", type="primary", use_container_width=True)
+    optimize = st.button("Optimizar y comparar", type="primary", use_container_width=True)
 
     st.divider()
     st.caption(
         f"Jornada: {context.config.hora_inicio}–{context.config.hora_fin}\n\n"
         f"Intervalo CP-SAT: {context.config.slot_minutos} min\n\n"
         f"Ubicaciones únicas: {context.unique_location_count}\n\n"
-        "Motor: Google Routes + OR-Tools / CP-SAT"
+        "Motor V3: Google Routes + OR-Tools / CP-SAT"
     )
 
 if optimize:
@@ -126,12 +127,13 @@ if optimize:
             travel_provider=travel_provider,
             google_api_key=google_key if travel_provider == TRAVEL_PROVIDER_GOOGLE else None,
             force_refresh_routes=bool(force_refresh),
+            compare_all_scenarios=bool(compare_all),
         )
         try:
             message = (
-                "Consultando/reutilizando Google Routes y calculando la planeación..."
+                "Evaluando factibilidad y calidad operativa con Google Routes..."
                 if travel_provider == TRAVEL_PROVIDER_GOOGLE
-                else "Calculando planeación con la aproximación geográfica V1..."
+                else "Evaluando factibilidad y calidad operativa con Haversine V1..."
             )
             with st.spinner(message):
                 st.session_state.optimization_run = run_optimization(context, request)
