@@ -11,6 +11,14 @@ from .models import PlanItem, TIPO_FISICA
 from .vehicle_planner import calculate_vehicle_plan
 
 
+DEFAULT_V5_WEIGHTS = {
+    "peso_calidad_km_vehiculo": 1.5,
+    "peso_calidad_viaje_solo": 12.0,
+    "peso_calidad_viaje_vehicular": 2.0,
+    "peso_calidad_tiempo_adicional": 3.0,
+}
+
+
 @dataclass(frozen=True)
 class QualityMetrics:
     espera_auditor_min: float = 0.0
@@ -58,6 +66,10 @@ def _additional_depot_time(
         total += max(0, -departure_slot) * config.slot_minutos
         total += max(0, return_slot - horizon) * config.slot_minutos
     return total
+
+
+def _weight(config: OptimizationConfig, name: str) -> float:
+    return float(getattr(config, name, DEFAULT_V5_WEIGHTS[name]))
 
 
 def calculate_quality_metrics(
@@ -113,10 +125,10 @@ def calculate_quality_metrics(
         + config.peso_calidad_balance_dia * day_imbalance
         + config.peso_calidad_balance_auditor * auditor_imbalance
         + config.peso_calidad_cambio_acompanante * companion_changes
-        + config.peso_calidad_km_vehiculo * vehicle.vehicle_km
-        + config.peso_calidad_viaje_solo * vehicle.solo_legs
-        + config.peso_calidad_viaje_vehicular * vehicle.vehicle_trips
-        + config.peso_calidad_tiempo_adicional * additional_time
+        + _weight(config, "peso_calidad_km_vehiculo") * vehicle.vehicle_km
+        + _weight(config, "peso_calidad_viaje_solo") * vehicle.solo_legs
+        + _weight(config, "peso_calidad_viaje_vehicular") * vehicle.vehicle_trips
+        + _weight(config, "peso_calidad_tiempo_adicional") * additional_time
         + 5000.0 * vehicle.rendezvous_issues
     )
 

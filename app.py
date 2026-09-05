@@ -21,7 +21,8 @@ from views.mapa import render_mapa
 from views.planificacion import render_planificacion
 
 
-APP_SCHEMA_VERSION = "5.0.1"
+APP_SCHEMA_VERSION = "5.0.2"
+DEFAULT_VEHICLE_CAPACITY = 4
 
 
 def _google_api_key() -> str:
@@ -39,6 +40,7 @@ apply_styles()
 context = load_context()
 google_key = _google_api_key()
 cache = google_cache_status(context)
+vehicle_capacity = int(getattr(context.config, "capacidad_vehiculo", DEFAULT_VEHICLE_CAPACITY))
 
 if st.session_state.get("app_schema_version") != APP_SCHEMA_VERSION:
     st.session_state.app_schema_version = APP_SCHEMA_VERSION
@@ -68,7 +70,7 @@ with st.sidebar:
     st.markdown("#### Logística V5")
     st.caption(
         f"Base ASEG: {DEPOT_LATITUDE:.6f}, {DEPOT_LONGITUDE:.6f}\n\n"
-        f"Capacidad por vehículo: {context.config.capacidad_vehiculo} pasajeros\n\n"
+        f"Capacidad por vehículo: {vehicle_capacity} pasajeros\n\n"
         "La flota se considera suficiente; el modelo penaliza vehículos/viajes individuales innecesarios."
     )
 
