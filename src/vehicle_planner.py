@@ -9,6 +9,9 @@ from .distance_matrix import TravelValue, travel_slots
 from .models import PlanItem, TIPO_FISICA, VehicleLeg
 
 
+DEFAULT_VEHICLE_CAPACITY = 4
+
+
 @dataclass(frozen=True)
 class VehiclePlanMetrics:
     legs: tuple[VehicleLeg, ...]
@@ -156,7 +159,7 @@ def _group_passenger_legs(
 
     vehicle_legs: list[VehicleLeg] = []
     counter_by_day: dict[int, int] = defaultdict(int)
-    capacity = max(1, config.capacidad_vehiculo)
+    capacity = max(1, int(getattr(config, "capacidad_vehiculo", DEFAULT_VEHICLE_CAPACITY)))
     for key in sorted(groups, key=lambda x: (x[0], x[3], x[1], x[2])):
         day, origin, destination, departure, arrival = key
         passengers = sorted({leg.auditor for leg in groups[key]})
