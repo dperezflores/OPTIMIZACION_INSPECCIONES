@@ -69,7 +69,7 @@ jobs:
               OptimizationRequest(
                   min_days=4,
                   max_days=4,
-                  time_limit_seconds=5,
+                  time_limit_seconds=15,
                   travel_provider=TRAVEL_PROVIDER_HAVERSINE,
                   compare_all_scenarios=False,
                   use_alns=True,
