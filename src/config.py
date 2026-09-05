@@ -36,6 +36,9 @@ class OptimizationConfig:
     peso_obj_supervisor_alternativo: int = 5
 
     # V3: métricas posteriores de calidad. Menor costo_operativo = mejor.
+    peso_calidad_traslado_auditor: float = 1.0
+    peso_calidad_traslado_supervisor: float = 0.4
+    peso_calidad_traslado_contratista: float = 0.4
     peso_calidad_espera: float = 1.0
     peso_calidad_balance_dia: float = 0.35
     peso_calidad_balance_auditor: float = 0.25
