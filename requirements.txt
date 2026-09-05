@@ -1,2 +1,5 @@
 ortools==9.15.6755
+pandas>=2.2,<4
+streamlit>=1.51,<2
+plotly>=6,<7
 pytest>=8,<10
