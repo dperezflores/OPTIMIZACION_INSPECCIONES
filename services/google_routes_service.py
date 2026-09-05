@@ -8,6 +8,7 @@ from typing import Iterable
 
 import requests
 
+from src.depot import DEPOT_ID, DEPOT_LATITUDE, DEPOT_LONGITUDE
 from src.distance_matrix import TravelValue
 from src.models import Obra
 
@@ -18,7 +19,7 @@ MAX_ELEMENTS_PER_REQUEST = 625
 DEFAULT_CACHE_PATH = Path("data/cache/google_routes_matrix.json")
 TRAVEL_MODE = "DRIVE"
 ROUTING_PREFERENCE = "TRAFFIC_UNAWARE"
-CACHE_SCHEMA_VERSION = 2
+CACHE_SCHEMA_VERSION = 3
 
 
 @dataclass(frozen=True)
@@ -41,8 +42,14 @@ def _coord_key(lat: float, lon: float) -> str:
     return f"{lat:.7f},{lon:.7f}"
 
 
+def _depot_node() -> LocationNode:
+    return LocationNode(_coord_key(DEPOT_LATITUDE, DEPOT_LONGITUDE), DEPOT_LATITUDE, DEPOT_LONGITUDE)
+
+
 def unique_locations(obras: Iterable[Obra]) -> list[LocationNode]:
     nodes: dict[str, LocationNode] = {}
+    depot = _depot_node()
+    nodes[depot.key] = depot
     for obra in obras:
         if obra.latitud is None or obra.longitud is None:
             continue
@@ -52,7 +59,7 @@ def unique_locations(obras: Iterable[Obra]) -> list[LocationNode]:
 
 
 def matrix_signature(obras: Iterable[Obra]) -> str:
-    settings = f"v{CACHE_SCHEMA_VERSION}|{TRAVEL_MODE}|{ROUTING_PREFERENCE}"
+    settings = f"v{CACHE_SCHEMA_VERSION}|{TRAVEL_MODE}|{ROUTING_PREFERENCE}|depot:{DEPOT_LATITUDE:.7f},{DEPOT_LONGITUDE:.7f}"
     coordinates = "|".join(n.key for n in unique_locations(obras))
     payload = f"{settings}|{coordinates}"
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()[:20]
@@ -68,20 +75,10 @@ def _duration_seconds(value: object) -> float:
 
 
 def _waypoint(node: LocationNode) -> dict:
-    return {
-        "waypoint": {
-            "location": {
-                "latLng": {
-                    "latitude": node.latitude,
-                    "longitude": node.longitude,
-                }
-            }
-        }
-    }
+    return {"waypoint": {"location": {"latLng": {"latitude": node.latitude, "longitude": node.longitude}}}}
 
 
 def _batch_pairs(nodes: list[LocationNode]) -> list[tuple[list[LocationNode], list[LocationNode]]]:
-    # 25×25 = 625 elementos, límite de Compute Route Matrix.
     chunk = 25
     batches = []
     for i in range(0, len(nodes), chunk):
@@ -94,12 +91,7 @@ def _batch_pairs(nodes: list[LocationNode]) -> list[tuple[list[LocationNode], li
     return batches
 
 
-def _request_batch(
-    api_key: str,
-    origins: list[LocationNode],
-    destinations: list[LocationNode],
-    timeout_seconds: float,
-) -> dict[tuple[str, str], TravelValue]:
+def _request_batch(api_key: str, origins: list[LocationNode], destinations: list[LocationNode], timeout_seconds: float) -> dict[tuple[str, str], TravelValue]:
     payload = {
         "origins": [_waypoint(n) for n in origins],
         "destinations": [_waypoint(n) for n in destinations],
@@ -108,11 +100,7 @@ def _request_batch(
     }
     response = requests.post(
         ROUTES_MATRIX_URL,
-        headers={
-            "Content-Type": "application/json",
-            "X-Goog-Api-Key": api_key,
-            "X-Goog-FieldMask": FIELD_MASK,
-        },
+        headers={"Content-Type": "application/json", "X-Goog-Api-Key": api_key, "X-Goog-FieldMask": FIELD_MASK},
         json=payload,
         timeout=timeout_seconds,
     )
@@ -132,31 +120,22 @@ def _request_batch(
         status = element.get("status") or {}
         code = int(status.get("code", 0) or 0)
         condition = str(element.get("condition", "ROUTE_EXISTS"))
-
         if origin.key == destination.key:
             result[(origin.key, destination.key)] = TravelValue(0.0, 0.0, 0.0)
             continue
         if code != 0 or condition == "ROUTE_NOT_FOUND":
             raise RuntimeError(
-                f"Google Routes no devolvió ruta válida entre {origin.key} y {destination.key}. "
-                f"status={status!r}, condition={condition!r}"
+                f"Google Routes no devolvió ruta válida entre {origin.key} y {destination.key}. status={status!r}, condition={condition!r}"
             )
-
         distance_km = float(element.get("distanceMeters", 0.0)) / 1000.0
         duration_min = _duration_seconds(element.get("duration")) / 60.0
-        result[(origin.key, destination.key)] = TravelValue(
-            distancia_geodesica_km=distance_km,
-            distancia_estimada_km=distance_km,
-            tiempo_estimado_min=duration_min,
-        )
+        result[(origin.key, destination.key)] = TravelValue(distance_km, distance_km, duration_min)
     return result
 
 
-def _expand_to_obras(
-    obras: list[Obra],
-    location_matrix: dict[tuple[str, str], TravelValue],
-) -> dict[tuple[str, str], TravelValue]:
+def _expand_to_obras(obras: list[Obra], location_matrix: dict[tuple[str, str], TravelValue]) -> dict[tuple[str, str], TravelValue]:
     result: dict[tuple[str, str], TravelValue] = {}
+    depot_key = _coord_key(DEPOT_LATITUDE, DEPOT_LONGITUDE)
     for origin in obras:
         if origin.latitud is None or origin.longitud is None:
             continue
@@ -168,14 +147,17 @@ def _expand_to_obras(
             value = location_matrix.get((origin_key, destination_key))
             if value is not None:
                 result[(origin.obra_id, destination.obra_id)] = value
+        to_obra = location_matrix.get((depot_key, origin_key))
+        to_depot = location_matrix.get((origin_key, depot_key))
+        if to_obra is not None:
+            result[(DEPOT_ID, origin.obra_id)] = to_obra
+        if to_depot is not None:
+            result[(origin.obra_id, DEPOT_ID)] = to_depot
+    result[(DEPOT_ID, DEPOT_ID)] = TravelValue(0.0, 0.0, 0.0)
     return result
 
 
-def save_cache(
-    obras: list[Obra],
-    location_matrix: dict[tuple[str, str], TravelValue],
-    cache_path: str | Path = DEFAULT_CACHE_PATH,
-) -> Path:
+def save_cache(obras: list[Obra], location_matrix: dict[tuple[str, str], TravelValue], cache_path: str | Path = DEFAULT_CACHE_PATH) -> Path:
     path = Path(cache_path)
     path.parent.mkdir(parents=True, exist_ok=True)
     payload = {
@@ -185,12 +167,7 @@ def save_cache(
         "routing_preference": ROUTING_PREFERENCE,
         "signature": matrix_signature(obras),
         "entries": [
-            {
-                "origin": origin,
-                "destination": destination,
-                "distance_km": value.distancia_estimada_km,
-                "duration_min": value.tiempo_estimado_min,
-            }
+            {"origin": origin, "destination": destination, "distance_km": value.distancia_estimada_km, "duration_min": value.tiempo_estimado_min}
             for (origin, destination), value in sorted(location_matrix.items())
         ],
     }
@@ -198,10 +175,7 @@ def save_cache(
     return path
 
 
-def load_cache(
-    obras: list[Obra],
-    cache_path: str | Path = DEFAULT_CACHE_PATH,
-) -> GoogleRoutesMatrix | None:
+def load_cache(obras: list[Obra], cache_path: str | Path = DEFAULT_CACHE_PATH) -> GoogleRoutesMatrix | None:
     path = Path(cache_path)
     if not path.exists():
         return None
@@ -209,28 +183,19 @@ def load_cache(
         raw = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
         return None
-    if (
-        raw.get("version") != CACHE_SCHEMA_VERSION
-        or raw.get("provider") != "google_routes"
-        or raw.get("signature") != matrix_signature(obras)
-    ):
+    if raw.get("version") != CACHE_SCHEMA_VERSION or raw.get("provider") != "google_routes" or raw.get("signature") != matrix_signature(obras):
         return None
 
     location_matrix: dict[tuple[str, str], TravelValue] = {}
     for row in raw.get("entries", []):
         distance_km = float(row["distance_km"])
         duration_min = float(row["duration_min"])
-        location_matrix[(row["origin"], row["destination"])] = TravelValue(
-            distancia_geodesica_km=distance_km,
-            distancia_estimada_km=distance_km,
-            tiempo_estimado_min=duration_min,
-        )
+        location_matrix[(row["origin"], row["destination"])] = TravelValue(distance_km, distance_km, duration_min)
 
     nodes = unique_locations(obras)
     expected = len(nodes) * len(nodes)
     if len(location_matrix) != expected:
         return None
-
     return GoogleRoutesMatrix(
         matrix=_expand_to_obras(obras, location_matrix),
         unique_locations=len(nodes),
@@ -250,7 +215,6 @@ def build_google_routes_matrix(
 ) -> GoogleRoutesMatrix:
     if not api_key or not api_key.strip():
         raise ValueError("Falta GOOGLE_MAPS_API_KEY.")
-
     if not force_refresh:
         cached = load_cache(obras, cache_path)
         if cached is not None:
@@ -259,21 +223,15 @@ def build_google_routes_matrix(
     nodes = unique_locations(obras)
     if not nodes:
         raise ValueError("No hay coordenadas válidas para construir la matriz Google Routes.")
-
     location_matrix: dict[tuple[str, str], TravelValue] = {}
     billed_elements = 0
     for origins, destinations in _batch_pairs(nodes):
         billed_elements += len(origins) * len(destinations)
-        location_matrix.update(
-            _request_batch(api_key.strip(), origins, destinations, timeout_seconds)
-        )
+        location_matrix.update(_request_batch(api_key.strip(), origins, destinations, timeout_seconds))
 
     expected = len(nodes) * len(nodes)
     if len(location_matrix) != expected:
-        raise RuntimeError(
-            f"Matriz Google incompleta: {len(location_matrix)} de {expected} elementos. No se guardó caché."
-        )
-
+        raise RuntimeError(f"Matriz Google incompleta: {len(location_matrix)} de {expected} elementos. No se guardó caché.")
     save_cache(obras, location_matrix, cache_path)
     return GoogleRoutesMatrix(
         matrix=_expand_to_obras(obras, location_matrix),

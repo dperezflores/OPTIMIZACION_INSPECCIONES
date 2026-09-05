@@ -5,8 +5,10 @@ from dataclasses import dataclass
 from statistics import pstdev
 
 from .config import OptimizationConfig
-from .distance_matrix import TravelValue, calculate_plan_travel_metrics
+from .depot import DEPOT_ID
+from .distance_matrix import TravelValue, calculate_plan_travel_metrics, travel_slots
 from .models import PlanItem, TIPO_FISICA
+from .vehicle_planner import calculate_vehicle_plan
 
 
 @dataclass(frozen=True)
@@ -15,14 +17,12 @@ class QualityMetrics:
     desbalance_dia_min: float = 0.0
     desbalance_auditor_min: float = 0.0
     cambios_acompanante: int = 0
+    tiempo_adicional_traslado_min: float = 0.0
     costo_operativo: float = 0.0
+    vehicle_rendezvous_issues: int = 0
 
 
-def _travel_minutes(
-    matrix: dict[tuple[str, str], TravelValue],
-    origin: str,
-    destination: str,
-) -> float:
+def _travel_minutes(matrix: dict[tuple[str, str], TravelValue], origin: str, destination: str) -> float:
     value = matrix.get((origin, destination))
     return value.tiempo_estimado_min if value else 0.0
 
@@ -38,12 +38,33 @@ def _auditor_sequences(plan: list[PlanItem]) -> dict[tuple[str, int], list[PlanI
     return groups
 
 
+def _additional_depot_time(
+    sequences: dict[tuple[str, int], list[PlanItem]],
+    matrix: dict[tuple[str, str], TravelValue],
+    config: OptimizationConfig,
+) -> float:
+    """Minutos de traslado que quedan fuera de la ventana de actividades 08:00-17:00."""
+    total = 0.0
+    horizon = config.slots_por_dia
+    for items in sequences.values():
+        if not items:
+            continue
+        first = items[0]
+        last = items[-1]
+        outbound = travel_slots(matrix, DEPOT_ID, first.obra_id, config)
+        inbound = travel_slots(matrix, last.obra_id, DEPOT_ID, config)
+        departure_slot = first.inicio_slot - outbound
+        return_slot = last.fin_slot + inbound
+        total += max(0, -departure_slot) * config.slot_minutos
+        total += max(0, return_slot - horizon) * config.slot_minutos
+    return total
+
+
 def calculate_quality_metrics(
     plan: list[PlanItem],
     matrix: dict[tuple[str, str], TravelValue],
     config: OptimizationConfig,
 ) -> QualityMetrics:
-    """Calcula calidad operativa comparable entre soluciones del mismo conjunto."""
     sequences = _auditor_sequences(plan)
     waiting = 0.0
     auditor_load: dict[str, float] = defaultdict(float)
@@ -63,7 +84,6 @@ def calculate_quality_metrics(
 
     day_values = list(day_load.values())
     day_imbalance = (max(day_values) - min(day_values)) if len(day_values) > 1 else 0.0
-
     auditor_values = list(auditor_load.values())
     auditor_imbalance = pstdev(auditor_values) if len(auditor_values) > 1 else 0.0
 
@@ -82,8 +102,9 @@ def calculate_quality_metrics(
             previous_companion = item.auditor_acompanante
 
     travel = calculate_plan_travel_metrics(plan, matrix)
+    vehicle = calculate_vehicle_plan(plan, matrix, config)
+    additional_time = _additional_depot_time(sequences, matrix, config)
 
-    # Índice interno, sin unidades físicas. Menor = mejor para el mismo conjunto.
     operating_cost = (
         config.peso_calidad_traslado_auditor * travel.auditor_min
         + config.peso_calidad_traslado_supervisor * travel.supervisor_min
@@ -92,6 +113,11 @@ def calculate_quality_metrics(
         + config.peso_calidad_balance_dia * day_imbalance
         + config.peso_calidad_balance_auditor * auditor_imbalance
         + config.peso_calidad_cambio_acompanante * companion_changes
+        + config.peso_calidad_km_vehiculo * vehicle.vehicle_km
+        + config.peso_calidad_viaje_solo * vehicle.solo_legs
+        + config.peso_calidad_viaje_vehicular * vehicle.vehicle_trips
+        + config.peso_calidad_tiempo_adicional * additional_time
+        + 5000.0 * vehicle.rendezvous_issues
     )
 
     return QualityMetrics(
@@ -99,5 +125,7 @@ def calculate_quality_metrics(
         desbalance_dia_min=day_imbalance,
         desbalance_auditor_min=auditor_imbalance,
         cambios_acompanante=companion_changes,
+        tiempo_adicional_traslado_min=additional_time,
         costo_operativo=operating_cost,
+        vehicle_rendezvous_issues=vehicle.rendezvous_issues,
     )

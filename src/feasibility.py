@@ -9,14 +9,16 @@ from .config import OptimizationConfig
 from .distance_matrix import TravelValue, build_travel_matrix, calculate_plan_travel_metrics, travel_slots
 from .models import Auditor, Obra, PlanItem, ScenarioResult
 from .quality import calculate_quality_metrics
+from .vehicle_planner import calculate_vehicle_plan
 
 
 class FeasibilitySolver:
-    """CP-SAT con restricciones duras y función de calidad V3/V4.
+    """CP-SAT con restricciones duras de agenda y calidad operativa V5.
 
-    La matriz puede venir de Haversine o Google Routes. Los traslados siguen siendo
-    restricciones duras. Para V4, `solve()` admite fijar el día de una parte de las
-    obras; ALNS libera un vecindario y CP-SAT repara sólo esa parte.
+    Las actividades se programan dentro de 08:00-17:00. Los traslados desde/hacia
+    ASEG forman parte de la logística completa; si requieren salir antes de las 08:00
+    o regresar después de las 17:00, se contabilizan como tiempo adicional y reciben
+    una penalización fuerte de calidad en vez de volver imposible toda la agenda.
     """
 
     def __init__(
@@ -273,10 +275,22 @@ class FeasibilitySolver:
         result.supervisor_travel_min = metrics.supervisor_min
         result.contractor_travel_km = metrics.contratista_km
         result.contractor_travel_min = metrics.contratista_min
+
+        vehicle = calculate_vehicle_plan(result.plan, self.travel_matrix, self.config)
+        result.vehicle_km = vehicle.vehicle_km
+        result.vehicle_travel_min = vehicle.vehicle_travel_min
+        result.vehicle_trips = vehicle.vehicle_trips
+        result.vehicles_required_peak = vehicle.vehicles_required_peak
+        result.solo_vehicle_legs = vehicle.solo_legs
+        result.shared_vehicle_legs = vehicle.shared_legs
+        result.vehicle_rendezvous_issues = vehicle.rendezvous_issues
+        result.vehicle_plan = list(vehicle.legs)
+
         quality = calculate_quality_metrics(result.plan, self.travel_matrix, self.config)
         result.waiting_auditor_min = quality.espera_auditor_min
         result.day_imbalance_min = quality.desbalance_dia_min
         result.auditor_imbalance_min = quality.desbalance_auditor_min
         result.companion_changes = quality.cambios_acompanante
+        result.additional_travel_time_min = quality.tiempo_adicional_traslado_min
         result.operational_cost = quality.costo_operativo
         return result

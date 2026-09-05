@@ -35,7 +35,7 @@ class OptimizationConfig:
     peso_obj_inicio_temprano: int = 1
     peso_obj_supervisor_alternativo: int = 5
 
-    # V3: métricas posteriores de calidad. Menor costo_operativo = mejor.
+    # V3/V4: métricas posteriores de calidad. Menor costo_operativo = mejor.
     peso_calidad_traslado_auditor: float = 1.0
     peso_calidad_traslado_supervisor: float = 0.4
     peso_calidad_traslado_contratista: float = 0.4
@@ -43,6 +43,17 @@ class OptimizationConfig:
     peso_calidad_balance_dia: float = 0.35
     peso_calidad_balance_auditor: float = 0.25
     peso_calidad_cambio_acompanante: float = 20.0
+
+    # V5: flota suficiente, pero se favorece compartir cuando es compatible.
+    capacidad_vehiculo: int = 4
+    peso_calidad_km_vehiculo: float = 1.5
+    peso_calidad_viaje_solo: float = 12.0
+    peso_calidad_viaje_vehicular: float = 2.0
+
+    # La ventana 08:00-17:00 sigue siendo la ventana de actividades. Los traslados
+    # desde/hacia ASEG pueden extenderla y se penalizan para que sólo ocurra cuando
+    # sea necesario (p. ej., revisiones de 8-8.5 h).
+    peso_calidad_tiempo_adicional: float = 3.0
 
     @property
     def minutos_jornada(self) -> int:

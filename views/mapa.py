@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+import pandas as pd
 import streamlit as st
 
 from services.optimization_service import OptimizationContext
 from services.presentation_service import build_map_dataframe
+from src.depot import DEPOT_LATITUDE, DEPOT_LONGITUDE, DEPOT_NAME
 from src.optimizer import OptimizationRun
 
 
@@ -25,7 +27,10 @@ def render_mapa(context: OptimizationContext, run: OptimizationRun | None) -> No
     selected_day = st.selectbox("Día del mapa", day_options, key="map_day_filter")
     visible = map_df if selected_day == "Todos" else map_df[map_df["dia"] == selected_day]
 
-    st.map(visible[["lat", "lon"]])
+    depot_row = pd.DataFrame([{"lat": DEPOT_LATITUDE, "lon": DEPOT_LONGITUDE}])
+    points = pd.concat([visible[["lat", "lon"]], depot_row], ignore_index=True)
+    st.map(points)
+    st.write(f"**Base común:** {DEPOT_NAME} · {DEPOT_LATITUDE:.6f}, {DEPOT_LONGITUDE:.6f}")
     st.dataframe(
         visible[["obra_id", "contrato", "auditor", "dia", "descripcion"]],
         use_container_width=True,
@@ -34,6 +39,6 @@ def render_mapa(context: OptimizationContext, run: OptimizationRun | None) -> No
     )
 
     st.caption(
-        "En la V0 el mapa muestra ubicación y día asignado. Las líneas de ruta y tiempos "
-        "viales se incorporarán cuando conectemos la matriz de traslados."
+        "V5 incluye ASEG como punto de salida y regreso de los auditores. La tabla de Planeación muestra, además, "
+        "los tramos vehiculares compartidos e individuales calculados para la solución seleccionada."
     )

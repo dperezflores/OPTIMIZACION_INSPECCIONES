@@ -21,9 +21,10 @@ def _work(obra_id: str, auditor: str, lat: float, lon: float) -> Obra:
 
 
 def test_alns_preserves_feasibility_and_never_returns_worse_best():
+    # V5 necesita incluir el traslado desde/hacia ASEG dentro de la jornada.
     cfg = OptimizationConfig(
         hora_inicio="08:00",
-        hora_fin="12:00",
+        hora_fin="17:00",
         slot_minutos=30,
         time_limit_seconds=2,
         num_search_workers=1,

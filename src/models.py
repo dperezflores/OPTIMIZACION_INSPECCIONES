@@ -65,6 +65,24 @@ class PlanItem:
     tipo_revision: str
 
 
+@dataclass(frozen=True)
+class VehicleLeg:
+    dia: int
+    vehicle_id: str
+    origen_id: str
+    destino_id: str
+    salida_slot: int
+    llegada_slot: int
+    pasajeros: Tuple[str, ...]
+    distancia_km: float
+    tiempo_min: float
+    motivo: str = ""
+
+    @property
+    def ocupacion(self) -> int:
+        return len(self.pasajeros)
+
+
 @dataclass
 class ScenarioResult:
     dias: int
@@ -83,7 +101,17 @@ class ScenarioResult:
     day_imbalance_min: float = 0.0
     auditor_imbalance_min: float = 0.0
     companion_changes: int = 0
+    additional_travel_time_min: float = 0.0
     operational_cost: float = 0.0
+
+    vehicle_km: float = 0.0
+    vehicle_travel_min: float = 0.0
+    vehicle_trips: int = 0
+    vehicles_required_peak: int = 0
+    solo_vehicle_legs: int = 0
+    shared_vehicle_legs: int = 0
+    vehicle_rendezvous_issues: int = 0
+    vehicle_plan: list[VehicleLeg] = field(default_factory=list)
 
     @property
     def probado_infactible(self) -> bool:

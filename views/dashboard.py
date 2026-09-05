@@ -5,6 +5,7 @@ import streamlit as st
 
 from services.optimization_service import OptimizationContext
 from services.presentation_service import build_scenarios_dataframe
+from src.depot import DEPOT_NAME
 from src.optimizer import OptimizationRun
 
 
@@ -27,25 +28,24 @@ def render_dashboard(context: OptimizationContext, run: OptimizationRun | None) 
     if run is None:
         st.info("Ejecuta la optimización desde el panel lateral para generar y comparar escenarios.")
         return
-
     if run.best is None:
         st.error("No se encontró una solución factible en el rango evaluado.")
         return
 
     certification = "mínimo certificado" if run.minimum_certified else "primera solución factible encontrada"
     st.success(f"Mínimo factible: {run.best.dias} día(s) · {certification}.")
-
     if run.quality_best is not None:
         st.info(
             f"Mejor calidad CP-SAT evaluada: {run.quality_best.dias} día(s). "
             f"El mínimo sigue siendo {run.best.dias} día(s); son criterios distintos."
         )
 
-    scenarios = build_scenarios_dataframe(run)
     st.markdown("#### Comparación de escenarios CP-SAT")
-    st.dataframe(scenarios, use_container_width=True, hide_index=True)
+    st.dataframe(build_scenarios_dataframe(run), use_container_width=True, hide_index=True)
     st.caption(
-        "El costo operativo es un índice interno: menor es mejor. Combina traslado, espera, balance y cambios de acompañante."
+        "Km-auditor mide movilidad de personas; km-vehículo cuenta cada recorrido compartido una sola vez. "
+        "Tiempo adicional ASEG es el traslado que ocurre antes de las 08:00 o después de las 17:00. "
+        "Se permite, pero recibe una penalización para evitarlo cuando existe otra organización razonable."
     )
 
     if run.alns_result is not None and run.quality_best is not None and run.refined_best is not None:
@@ -61,7 +61,12 @@ def render_dashboard(context: OptimizationContext, run: OptimizationRun | None) 
                 "Solución": "CP-SAT inicial",
                 "Días": initial.dias,
                 "Km-auditor": round(initial.auditor_travel_km, 1),
+                "Km-vehículo": round(initial.vehicle_km, 1),
+                "Viajes solo": initial.solo_vehicle_legs,
+                "Viajes compartidos": initial.shared_vehicle_legs,
+                "Vehículos simultáneos máx.": initial.vehicles_required_peak,
                 "Traslado auditor (h)": round(initial.auditor_travel_min / 60, 1),
+                "Tiempo adicional ASEG (h-auditor)": round(initial.additional_travel_time_min / 60, 1),
                 "Espera (h-auditor)": round(initial.waiting_auditor_min / 60, 1),
                 "Desbalance día (h)": round(initial.day_imbalance_min / 60, 1),
                 "Cambios acompañante": initial.companion_changes,
@@ -71,7 +76,12 @@ def render_dashboard(context: OptimizationContext, run: OptimizationRun | None) 
                 "Solución": "ALNS refinada",
                 "Días": refined.dias,
                 "Km-auditor": round(refined.auditor_travel_km, 1),
+                "Km-vehículo": round(refined.vehicle_km, 1),
+                "Viajes solo": refined.solo_vehicle_legs,
+                "Viajes compartidos": refined.shared_vehicle_legs,
+                "Vehículos simultáneos máx.": refined.vehicles_required_peak,
                 "Traslado auditor (h)": round(refined.auditor_travel_min / 60, 1),
+                "Tiempo adicional ASEG (h-auditor)": round(refined.additional_travel_time_min / 60, 1),
                 "Espera (h-auditor)": round(refined.waiting_auditor_min / 60, 1),
                 "Desbalance día (h)": round(refined.day_imbalance_min / 60, 1),
                 "Cambios acompañante": refined.companion_changes,
@@ -89,32 +99,33 @@ def render_dashboard(context: OptimizationContext, run: OptimizationRun | None) 
         operator_rows = []
         for op in run.alns_result.operator_stats:
             operator_rows.append({
-                "Operador": op.name,
-                "Peso final": round(op.weight, 2),
-                "Usos": op.uses,
-                "Aceptados": op.accepted,
-                "Mejoras": op.improved,
-                "Nuevos mejores": op.best_hits,
+                "Operador": op.name, "Peso final": round(op.weight, 2), "Usos": op.uses,
+                "Aceptados": op.accepted, "Mejoras": op.improved, "Nuevos mejores": op.best_hits,
             })
         with st.expander("Comportamiento adaptativo de operadores", expanded=False):
             st.dataframe(pd.DataFrame(operator_rows), use_container_width=True, hide_index=True)
-            st.caption(
-                "Los operadores que producen mejores soluciones reciben más peso y tienen mayor probabilidad de seleccionarse en iteraciones posteriores."
-            )
     else:
         st.warning("ALNS no se ejecutó en esta corrida; sólo se muestran resultados CP-SAT.")
 
+    st.markdown("#### Base y movilidad")
+    st.write(
+        f"Todos los auditores parten de **{DEPOT_NAME}** y regresan a esa misma base. "
+        "Las actividades se programan entre 08:00 y 17:00. Si el traslado obliga a salir antes o regresar después, "
+        "el sistema lo muestra como tiempo adicional y lo penaliza, en vez de declarar imposible una revisión larga. "
+        "La capacidad utilizada es de **4 pasajeros por vehículo** y los viajes individuales siguen permitidos."
+    )
+
     st.markdown("#### Fuente de traslados")
-    st.write(f"**{_source_text(run)}** · Ubicaciones únicas: **{run.unique_locations or context.unique_location_count}**.")
+    st.write(f"**{_source_text(run)}** · Nodos de ruta: **{run.unique_locations or context.unique_location_count}**.")
     if run.billed_elements:
         st.info(
             f"Esta ejecución generó una matriz nueva con {run.billed_elements:,} elementos origen-destino. "
             "Las siguientes optimizaciones reutilizarán la caché mientras no cambien las coordenadas."
         )
 
-    st.markdown("#### Qué hace V4")
+    st.markdown("#### Qué hace V5")
     st.write(
-        "CP-SAT genera soluciones factibles y compara escenarios. ALNS toma la mejor solución de calidad, "
-        "libera parcialmente la agenda con operadores adaptativos y usa CP-SAT para repararla. "
-        "Cada reparación conserva las restricciones duras de auditores, jornada, supervisores, contratistas y traslados."
+        "CP-SAT construye las agendas de actividades. La capa logística añade el recorrido ASEG → actividades → ASEG, "
+        "agrupa tramos compatibles en vehículos de hasta cuatro personas y calcula los viajes individuales necesarios. "
+        "ALNS usa también km-vehículo, viajes individuales y tiempo adicional para refinar la solución."
     )

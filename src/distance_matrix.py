@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from math import asin, cos, radians, sin, sqrt
 
 from .config import OptimizationConfig
+from .depot import DEPOT_ID, DEPOT_LATITUDE, DEPOT_LONGITUDE
 from .models import Obra, PlanItem
 
 
@@ -36,7 +37,6 @@ class TravelMetrics:
 
 
 def haversine_km(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
-    """Distancia geodésica entre dos coordenadas."""
     phi1, phi2 = radians(lat1), radians(lat2)
     dphi = radians(lat2 - lat1)
     dlambda = radians(lon2 - lon1)
@@ -44,39 +44,36 @@ def haversine_km(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
     return 2 * EARTH_RADIUS_KM * asin(sqrt(a))
 
 
+def _travel_value(lat1: float, lon1: float, lat2: float, lon2: float, config: OptimizationConfig) -> TravelValue:
+    geodesica = haversine_km(lat1, lon1, lat2, lon2)
+    if geodesica < 1e-6:
+        estimada = 0.0
+        minutos = 0.0
+    else:
+        estimada = geodesica * config.factor_distancia_vial
+        minutos = estimada / config.velocidad_promedio_kmh * 60.0
+    return TravelValue(geodesica, estimada, minutos)
+
+
 def build_travel_matrix(
     obras: list[Obra],
     config: OptimizationConfig,
 ) -> dict[tuple[str, str], TravelValue]:
-    """Matriz V1: Haversine × factor vial / velocidad media.
-
-    No pretende reemplazar Google Routes. Es una aproximación reproducible para
-    validar que el modelo espacio-temporal funciona antes de consumir una API.
-    """
+    """Matriz Haversine V1 ampliada con el depósito ASEG para V5."""
     matrix: dict[tuple[str, str], TravelValue] = {}
-    for origen in obras:
-        if origen.latitud is None or origen.longitud is None:
-            continue
-        for destino in obras:
-            if destino.latitud is None or destino.longitud is None:
-                continue
-            geodesica = haversine_km(
-                origen.latitud,
-                origen.longitud,
-                destino.latitud,
-                destino.longitud,
+    valid = [o for o in obras if o.latitud is not None and o.longitud is not None]
+    for origin in valid:
+        for destination in valid:
+            matrix[(origin.obra_id, destination.obra_id)] = _travel_value(
+                origin.latitud, origin.longitud, destination.latitud, destination.longitud, config
             )
-            if origen.obra_id == destino.obra_id or geodesica < 1e-6:
-                estimada = 0.0
-                minutos = 0.0
-            else:
-                estimada = geodesica * config.factor_distancia_vial
-                minutos = estimada / config.velocidad_promedio_kmh * 60.0
-            matrix[(origen.obra_id, destino.obra_id)] = TravelValue(
-                distancia_geodesica_km=geodesica,
-                distancia_estimada_km=estimada,
-                tiempo_estimado_min=minutos,
-            )
+        matrix[(DEPOT_ID, origin.obra_id)] = _travel_value(
+            DEPOT_LATITUDE, DEPOT_LONGITUDE, origin.latitud, origin.longitud, config
+        )
+        matrix[(origin.obra_id, DEPOT_ID)] = _travel_value(
+            origin.latitud, origin.longitud, DEPOT_LATITUDE, DEPOT_LONGITUDE, config
+        )
+    matrix[(DEPOT_ID, DEPOT_ID)] = TravelValue(0.0, 0.0, 0.0)
     return matrix
 
 
@@ -97,18 +94,34 @@ def travel_slots(
 def _sequence_metrics(
     items: list[PlanItem],
     matrix: dict[tuple[str, str], TravelValue],
+    *,
+    include_depot: bool = False,
 ) -> tuple[float, float]:
     km = 0.0
     minutes = 0.0
-    ordered = sorted(items, key=lambda x: (x.dia, x.inicio_slot, x.obra_id))
-    previous: PlanItem | None = None
-    for item in ordered:
-        if previous is not None and previous.dia == item.dia:
-            value = matrix.get((previous.obra_id, item.obra_id))
+    by_day: dict[int, list[PlanItem]] = {}
+    for item in items:
+        by_day.setdefault(item.dia, []).append(item)
+
+    for day_items in by_day.values():
+        ordered = sorted(day_items, key=lambda x: (x.inicio_slot, x.obra_id))
+        if not ordered:
+            continue
+        if include_depot:
+            first = matrix.get((DEPOT_ID, ordered[0].obra_id))
+            if first:
+                km += first.distancia_estimada_km
+                minutes += first.tiempo_estimado_min
+        for previous, current in zip(ordered, ordered[1:]):
+            value = matrix.get((previous.obra_id, current.obra_id))
             if value:
                 km += value.distancia_estimada_km
                 minutes += value.tiempo_estimado_min
-        previous = item
+        if include_depot:
+            last = matrix.get((ordered[-1].obra_id, DEPOT_ID))
+            if last:
+                km += last.distancia_estimada_km
+                minutes += last.tiempo_estimado_min
     return km, minutes
 
 
@@ -116,11 +129,7 @@ def calculate_plan_travel_metrics(
     plan: list[PlanItem],
     matrix: dict[tuple[str, str], TravelValue],
 ) -> TravelMetrics:
-    """Calcula desplazamientos entre actividades consecutivas por recurso.
-
-    `auditor_km` es km-auditor, no km-vehículo: si dos auditores viajan juntos se
-    contabilizan dos desplazamientos personales hasta conocer la regla de vehículos.
-    """
+    """Calcula desplazamientos por recurso; auditores incluyen salida/regreso a ASEG."""
     by_auditor: dict[str, list[PlanItem]] = {}
     by_supervisor: dict[str, list[PlanItem]] = {}
     by_contractor: dict[str, list[PlanItem]] = {}
@@ -134,15 +143,15 @@ def calculate_plan_travel_metrics(
         if item.contratista_id:
             by_contractor.setdefault(item.contratista_id, []).append(item)
 
-    def total(groups: dict[str, list[PlanItem]]) -> tuple[float, float]:
+    def total(groups: dict[str, list[PlanItem]], include_depot: bool = False) -> tuple[float, float]:
         km = minutes = 0.0
         for items in groups.values():
-            k, m = _sequence_metrics(items, matrix)
+            k, m = _sequence_metrics(items, matrix, include_depot=include_depot)
             km += k
             minutes += m
         return km, minutes
 
-    akm, amin = total(by_auditor)
+    akm, amin = total(by_auditor, include_depot=True)
     skm, smin = total(by_supervisor)
     ckm, cmin = total(by_contractor)
     return TravelMetrics(akm, amin, skm, smin, ckm, cmin)
