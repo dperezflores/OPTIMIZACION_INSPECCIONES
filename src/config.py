@@ -21,6 +21,12 @@ class OptimizationConfig:
     prioridad_default: int = 3
     modo_parejas: str = "dinamicas_por_inspeccion"
 
+    # V1 geográfica. Haversine se ajusta para aproximar recorrido vial.
+    incluir_traslados: bool = True
+    factor_distancia_vial: float = 1.25
+    velocidad_promedio_kmh: float = 35.0
+    penalizacion_geografica: int = 1
+
     @property
     def minutos_jornada(self) -> int:
         inicio = _parse_hhmm(self.hora_inicio)
@@ -40,6 +46,11 @@ class OptimizationConfig:
 
     def minutos_a_slots(self, minutos: int) -> int:
         return max(1, math.ceil(minutos / self.slot_minutos))
+
+    def traslado_minutos_a_slots(self, minutos: float) -> int:
+        if minutos <= 0:
+            return 0
+        return math.ceil(minutos / self.slot_minutos)
 
     def slot_a_hora(self, slot: int) -> str:
         base = _parse_hhmm(self.hora_inicio)

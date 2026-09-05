@@ -48,9 +48,6 @@ def _tipo_revision(row: dict, latitud: Optional[float], longitud: Optional[float
         if value in {TIPO_PROYECTO, TIPO_FISICA}:
             return value
         raise ValueError(f"tipo_revision no reconocido: {explicit!r}")
-
-    # Migración V0.1: las actividades en la coordenada conocida de la DGOP
-    # corresponden actualmente a revisión documental de proyectos.
     if latitud is not None and longitud is not None:
         if abs(latitud - DGOP_COORD[0]) < 1e-9 and abs(longitud - DGOP_COORD[1]) < 1e-9:
             return TIPO_PROYECTO
@@ -60,7 +57,7 @@ def _tipo_revision(row: dict, latitud: Optional[float], longitud: Optional[float
 def load_obras(path: str | Path) -> list[Obra]:
     path = Path(path)
     if path.suffix.lower() != ".csv":
-        raise ValueError("La V0 usa CSV para versionar y comparar los datos en GitHub.")
+        raise ValueError("El modelo usa CSV para versionar y comparar los datos en GitHub.")
 
     obras: list[Obra] = []
     with path.open("r", encoding="utf-8-sig", newline="") as fh:
@@ -116,5 +113,10 @@ def load_config(path: str | Path | None = None) -> OptimizationConfig:
     if path is None:
         return OptimizationConfig()
     raw = json.loads(Path(path).read_text(encoding="utf-8"))
-    allowed = {"hora_inicio", "hora_fin", "slot_minutos", "dias_min", "dias_max", "time_limit_seconds", "num_search_workers", "prioridad_default", "modo_parejas"}
+    allowed = {
+        "hora_inicio", "hora_fin", "slot_minutos", "dias_min", "dias_max",
+        "time_limit_seconds", "num_search_workers", "prioridad_default",
+        "modo_parejas", "incluir_traslados", "factor_distancia_vial",
+        "velocidad_promedio_kmh", "penalizacion_geografica",
+    }
     return OptimizationConfig(**{key: value for key, value in raw.items() if key in allowed})

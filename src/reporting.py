@@ -15,14 +15,20 @@ def print_run_summary(
     auditores_count: int,
     total_inspection_hours: float,
 ) -> None:
-    print("=" * 72)
-    print("OPTIMIZACIÓN DE INSPECCIONES - MODELO V0.1")
-    print("=" * 72)
+    print("=" * 78)
+    print("OPTIMIZACIÓN DE INSPECCIONES - MODELO V1 GEOGRÁFICO")
+    print("=" * 78)
     print(f"Obras/actividades:      {obras_count}")
     print(f"Auditores disponibles: {auditores_count}")
-    print(f"Horas de revisión:     {total_inspection_hours:.1f} h")
-    print(f"Jornada modelada:      {config.hora_inicio} - {config.hora_fin}")
-    print(f"Cota inferior teórica: {run.theoretical_lower_bound} día(s)")
+    print(f"Horas de revisión:      {total_inspection_hours:.1f} h")
+    print(f"Jornada modelada:       {config.hora_inicio} - {config.hora_fin}")
+    print(f"Cota inferior teórica:  {run.theoretical_lower_bound} día(s)")
+    print(
+        "Traslados V1:           "
+        f"Haversine × {config.factor_distancia_vial:.2f}; "
+        f"velocidad media {config.velocidad_promedio_kmh:.1f} km/h; "
+        f"redondeo a {config.slot_minutos} min"
+    )
     print()
     print("Escenarios:")
 
@@ -33,15 +39,38 @@ def print_run_summary(
             label = "NO FACTIBLE (PROBADO)"
         else:
             label = f"NO DETERMINADO ({result.status})"
-        print(f"  {result.dias} día(s): {label} [{result.wall_time_seconds:.2f} s]")
+        extra = ""
+        if result.factible:
+            extra = (
+                f" | auditor: {result.auditor_travel_km:.1f} km / "
+                f"{result.auditor_travel_min/60:.1f} h"
+            )
+        print(
+            f"  {result.dias} día(s): {label} "
+            f"[{result.wall_time_seconds:.2f} s]{extra}"
+        )
 
     print()
     if run.best is None:
         print("No se encontró una solución factible en el rango evaluado.")
     else:
-        cert = "mínimo certificado" if run.minimum_certified else "mínimo no certificado: hubo escenarios previos sin concluir"
+        cert = (
+            "mínimo certificado"
+            if run.minimum_certified
+            else "mínimo no certificado: hubo escenarios previos sin concluir"
+        )
         print(f"Primera solución factible: {run.best.dias} día(s) ({cert}).")
-    print("=" * 72)
+        print(
+            f"Traslado aproximado de auditores: {run.best.auditor_travel_km:.1f} km-auditor "
+            f"/ {run.best.auditor_travel_min/60:.1f} h-auditor."
+        )
+        print(
+            f"Supervisores: {run.best.supervisor_travel_km:.1f} km / "
+            f"{run.best.supervisor_travel_min/60:.1f} h; "
+            f"Contratistas: {run.best.contractor_travel_km:.1f} km / "
+            f"{run.best.contractor_travel_min/60:.1f} h."
+        )
+    print("=" * 78)
 
 
 def save_run(run: OptimizationRun, config: OptimizationConfig, output_dir: str | Path) -> None:
@@ -59,6 +88,10 @@ def save_run(run: OptimizationRun, config: OptimizationConfig, output_dir: str |
                 "feasible": r.factible,
                 "wall_time_seconds": round(r.wall_time_seconds, 4),
                 "objective_value": r.objective_value,
+                "auditor_travel_km": round(r.auditor_travel_km, 2),
+                "auditor_travel_min": round(r.auditor_travel_min, 2),
+                "supervisor_travel_km": round(r.supervisor_travel_km, 2),
+                "contractor_travel_km": round(r.contractor_travel_km, 2),
             }
             for r in run.scenarios
         ],
@@ -68,7 +101,10 @@ def save_run(run: OptimizationRun, config: OptimizationConfig, output_dir: str |
             "slot_minutes": config.slot_minutos,
             "dynamic_companions_per_physical_inspection": True,
             "documentary_projects_require_one_auditor": True,
-            "travel_times_included": False,
+            "travel_times_included": config.incluir_traslados,
+            "travel_model": "haversine_adjusted",
+            "road_distance_factor": config.factor_distancia_vial,
+            "average_speed_kmh": config.velocidad_promedio_kmh,
         },
     }
     (output_dir / "resumen.json").write_text(

@@ -10,8 +10,6 @@ TIPO_FISICA = "INSPECCION_FISICA"
 
 @dataclass(frozen=True)
 class Obra:
-    """Actividad de revisión: proyecto documental o inspección física."""
-
     obra_id: str
     contrato: str
     descripcion: str
@@ -75,6 +73,12 @@ class ScenarioResult:
     wall_time_seconds: float
     objective_value: Optional[float] = None
     plan: list[PlanItem] = field(default_factory=list)
+    auditor_travel_km: float = 0.0
+    auditor_travel_min: float = 0.0
+    supervisor_travel_km: float = 0.0
+    supervisor_travel_min: float = 0.0
+    contractor_travel_km: float = 0.0
+    contractor_travel_min: float = 0.0
 
     @property
     def probado_infactible(self) -> bool:
