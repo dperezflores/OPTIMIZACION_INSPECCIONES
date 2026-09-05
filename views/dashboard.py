@@ -44,7 +44,8 @@ def render_dashboard(context: OptimizationContext, run: OptimizationRun | None) 
     st.dataframe(build_scenarios_dataframe(run), use_container_width=True, hide_index=True)
     st.caption(
         "Km-auditor mide movilidad de personas; km-vehículo cuenta cada recorrido compartido una sola vez. "
-        "El costo operativo es un índice interno: menor es mejor."
+        "Tiempo adicional ASEG es el traslado que ocurre antes de las 08:00 o después de las 17:00. "
+        "Se permite, pero recibe una penalización para evitarlo cuando existe otra organización razonable."
     )
 
     if run.alns_result is not None and run.quality_best is not None and run.refined_best is not None:
@@ -65,6 +66,7 @@ def render_dashboard(context: OptimizationContext, run: OptimizationRun | None) 
                 "Viajes compartidos": initial.shared_vehicle_legs,
                 "Vehículos simultáneos máx.": initial.vehicles_required_peak,
                 "Traslado auditor (h)": round(initial.auditor_travel_min / 60, 1),
+                "Tiempo adicional ASEG (h-auditor)": round(initial.additional_travel_time_min / 60, 1),
                 "Espera (h-auditor)": round(initial.waiting_auditor_min / 60, 1),
                 "Desbalance día (h)": round(initial.day_imbalance_min / 60, 1),
                 "Cambios acompañante": initial.companion_changes,
@@ -79,6 +81,7 @@ def render_dashboard(context: OptimizationContext, run: OptimizationRun | None) 
                 "Viajes compartidos": refined.shared_vehicle_legs,
                 "Vehículos simultáneos máx.": refined.vehicles_required_peak,
                 "Traslado auditor (h)": round(refined.auditor_travel_min / 60, 1),
+                "Tiempo adicional ASEG (h-auditor)": round(refined.additional_travel_time_min / 60, 1),
                 "Espera (h-auditor)": round(refined.waiting_auditor_min / 60, 1),
                 "Desbalance día (h)": round(refined.day_imbalance_min / 60, 1),
                 "Cambios acompañante": refined.companion_changes,
@@ -106,8 +109,10 @@ def render_dashboard(context: OptimizationContext, run: OptimizationRun | None) 
 
     st.markdown("#### Base y movilidad")
     st.write(
-        f"Todos los auditores parten de **{DEPOT_NAME}** y la agenda debe permitir su regreso antes del cierre de jornada. "
-        "La capacidad utilizada es de **4 pasajeros por vehículo**. Los viajes individuales están permitidos, pero reciben una penalización suave."
+        f"Todos los auditores parten de **{DEPOT_NAME}** y regresan a esa misma base. "
+        "Las actividades se programan entre 08:00 y 17:00. Si el traslado obliga a salir antes o regresar después, "
+        "el sistema lo muestra como tiempo adicional y lo penaliza, en vez de declarar imposible una revisión larga. "
+        "La capacidad utilizada es de **4 pasajeros por vehículo** y los viajes individuales siguen permitidos."
     )
 
     st.markdown("#### Fuente de traslados")
@@ -120,7 +125,7 @@ def render_dashboard(context: OptimizationContext, run: OptimizationRun | None) 
 
     st.markdown("#### Qué hace V5")
     st.write(
-        "CP-SAT construye agendas que ya consideran el viaje de salida desde ASEG y el regreso. "
-        "Después se agrupan tramos compatibles en vehículos de hasta cuatro personas; ALNS usa también estas métricas "
-        "para favorecer menos km-vehículo, menos viajes individuales y una mejor organización general."
+        "CP-SAT construye las agendas de actividades. La capa logística añade el recorrido ASEG → actividades → ASEG, "
+        "agrupa tramos compatibles en vehículos de hasta cuatro personas y calcula los viajes individuales necesarios. "
+        "ALNS usa también km-vehículo, viajes individuales y tiempo adicional para refinar la solución."
     )
