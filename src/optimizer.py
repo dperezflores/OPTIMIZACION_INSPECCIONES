@@ -15,6 +15,8 @@ class OptimizationRun:
     scenarios: list[ScenarioResult] = field(default_factory=list)
     best: ScenarioResult | None = None
     quality_best: ScenarioResult | None = None
+    refined_best: ScenarioResult | None = None
+    alns_result: object | None = None
     minimum_certified: bool = False
     travel_source: str = "haversine_v1"
     unique_locations: int | None = None
@@ -50,7 +52,6 @@ def find_minimum_feasible_days(
     for dias in range(start_days, requested_max + 1):
         result = solver.solve(dias)
         run.scenarios.append(result)
-
         if result.factible:
             if run.best is None:
                 run.best = result
@@ -61,5 +62,4 @@ def find_minimum_feasible_days(
                 break
         elif not result.probado_infactible:
             earlier_all_proven_infeasible = False
-
     return run
