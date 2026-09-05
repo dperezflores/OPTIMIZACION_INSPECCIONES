@@ -48,9 +48,15 @@ def render_dashboard(context: OptimizationContext, run: OptimizationRun | None) 
         "Se permite, pero recibe una penalización para evitarlo cuando existe otra organización razonable."
     )
 
-    if run.alns_result is not None and run.quality_best is not None and run.refined_best is not None:
-        initial = run.alns_result.initial
-        refined = run.refined_best
+    # Tomamos una instantánea local de los tres campos. El if compuesto ya era
+    # seguro por cortocircuito, pero esta forma evita accesos repetidos y deja una
+    # salida explícita si una ejecución parcial deja ALNS incompleto.
+    alns_result = run.alns_result
+    quality_best = run.quality_best
+    refined = run.refined_best
+
+    if alns_result is not None and quality_best is not None and refined is not None:
+        initial = alns_result.initial
         improvement = 0.0
         if initial.operational_cost > 0:
             improvement = 100.0 * (initial.operational_cost - refined.operational_cost) / initial.operational_cost
@@ -92,18 +98,23 @@ def render_dashboard(context: OptimizationContext, run: OptimizationRun | None) 
 
         c1, c2, c3, c4 = st.columns(4)
         c1.metric("Mejora del índice", f"{improvement:.1f}%")
-        c2.metric("Iteraciones ALNS", run.alns_result.iterations)
-        c3.metric("Movimientos aceptados", run.alns_result.accepted_moves)
-        c4.metric("Movimientos con mejora", run.alns_result.improving_moves)
+        c2.metric("Iteraciones ALNS", alns_result.iterations)
+        c3.metric("Movimientos aceptados", alns_result.accepted_moves)
+        c4.metric("Movimientos con mejora", alns_result.improving_moves)
 
         operator_rows = []
-        for op in run.alns_result.operator_stats:
+        for op in alns_result.operator_stats:
             operator_rows.append({
                 "Operador": op.name, "Peso final": round(op.weight, 2), "Usos": op.uses,
                 "Aceptados": op.accepted, "Mejoras": op.improved, "Nuevos mejores": op.best_hits,
             })
         with st.expander("Comportamiento adaptativo de operadores", expanded=False):
             st.dataframe(pd.DataFrame(operator_rows), use_container_width=True, hide_index=True)
+    elif alns_result is not None or refined is not None:
+        st.warning(
+            "La ejecución de ALNS quedó parcial y no tiene todos los objetos necesarios para comparar antes/después. "
+            "La solución CP-SAT sigue disponible."
+        )
     else:
         st.warning("ALNS no se ejecutó en esta corrida; sólo se muestran resultados CP-SAT.")
 
@@ -125,7 +136,9 @@ def render_dashboard(context: OptimizationContext, run: OptimizationRun | None) 
 
     st.markdown("#### Qué hace V5")
     st.write(
-        "CP-SAT construye las agendas de actividades. La capa logística añade el recorrido ASEG → actividades → ASEG, "
-        "agrupa tramos compatibles en vehículos de hasta cuatro personas y calcula los viajes individuales necesarios. "
-        "ALNS usa también km-vehículo, viajes individuales y tiempo adicional para refinar la solución."
+        "CP-SAT construye las agendas de actividades y ahora incorpora en su objetivo los minutos de traslado "
+        "consecutivo de auditores, supervisores y contratistas. La capa logística añade el recorrido "
+        "ASEG → actividades → ASEG, agrupa tramos compatibles en vehículos de hasta cuatro personas y calcula "
+        "los viajes individuales necesarios. ALNS refina después los componentes que dependen de la solución "
+        "completa, como km-vehículo, viajes individuales, espera y tiempo adicional."
     )
