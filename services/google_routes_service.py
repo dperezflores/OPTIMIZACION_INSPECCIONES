@@ -16,6 +16,9 @@ ROUTES_MATRIX_URL = "https://routes.googleapis.com/distanceMatrix/v2:computeRout
 FIELD_MASK = "originIndex,destinationIndex,status,condition,distanceMeters,duration"
 MAX_ELEMENTS_PER_REQUEST = 625
 DEFAULT_CACHE_PATH = Path("data/cache/google_routes_matrix.json")
+TRAVEL_MODE = "DRIVE"
+ROUTING_PREFERENCE = "TRAFFIC_UNAWARE"
+CACHE_SCHEMA_VERSION = 2
 
 
 @dataclass(frozen=True)
@@ -49,7 +52,9 @@ def unique_locations(obras: Iterable[Obra]) -> list[LocationNode]:
 
 
 def matrix_signature(obras: Iterable[Obra]) -> str:
-    payload = "|".join(n.key for n in unique_locations(obras))
+    settings = f"v{CACHE_SCHEMA_VERSION}|{TRAVEL_MODE}|{ROUTING_PREFERENCE}"
+    coordinates = "|".join(n.key for n in unique_locations(obras))
+    payload = f"{settings}|{coordinates}"
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()[:20]
 
 
@@ -76,13 +81,15 @@ def _waypoint(node: LocationNode) -> dict:
 
 
 def _batch_pairs(nodes: list[LocationNode]) -> list[tuple[list[LocationNode], list[LocationNode]]]:
-    # Bloques 25×25 = 625 elementos, límite actual de Compute Route Matrix.
+    # 25×25 = 625 elementos, límite de Compute Route Matrix.
     chunk = 25
     batches = []
     for i in range(0, len(nodes), chunk):
         origins = nodes[i : i + chunk]
         for j in range(0, len(nodes), chunk):
             destinations = nodes[j : j + chunk]
+            if len(origins) * len(destinations) > MAX_ELEMENTS_PER_REQUEST:
+                raise AssertionError("Lote de Google Routes excede 625 elementos.")
             batches.append((origins, destinations))
     return batches
 
@@ -96,9 +103,8 @@ def _request_batch(
     payload = {
         "origins": [_waypoint(n) for n in origins],
         "destinations": [_waypoint(n) for n in destinations],
-        "travelMode": "DRIVE",
-        # No usamos tráfico dependiente de hora/fecha en esta primera V2.
-        "routingPreference": "TRAFFIC_UNAWARE",
+        "travelMode": TRAVEL_MODE,
+        "routingPreference": ROUTING_PREFERENCE,
     }
     response = requests.post(
         ROUTES_MATRIX_URL,
@@ -119,6 +125,8 @@ def _request_batch(
     for element in data:
         oi = int(element.get("originIndex", 0))
         di = int(element.get("destinationIndex", 0))
+        if oi >= len(origins) or di >= len(destinations):
+            raise RuntimeError("Google Routes devolvió índices fuera del lote solicitado.")
         origin = origins[oi]
         destination = destinations[di]
         status = element.get("status") or {}
@@ -152,12 +160,12 @@ def _expand_to_obras(
     for origin in obras:
         if origin.latitud is None or origin.longitud is None:
             continue
-        ok = _coord_key(origin.latitud, origin.longitud)
+        origin_key = _coord_key(origin.latitud, origin.longitud)
         for destination in obras:
             if destination.latitud is None or destination.longitud is None:
                 continue
-            dk = _coord_key(destination.latitud, destination.longitud)
-            value = location_matrix.get((ok, dk))
+            destination_key = _coord_key(destination.latitud, destination.longitud)
+            value = location_matrix.get((origin_key, destination_key))
             if value is not None:
                 result[(origin.obra_id, destination.obra_id)] = value
     return result
@@ -171,8 +179,10 @@ def save_cache(
     path = Path(cache_path)
     path.parent.mkdir(parents=True, exist_ok=True)
     payload = {
-        "version": 1,
+        "version": CACHE_SCHEMA_VERSION,
         "provider": "google_routes",
+        "travel_mode": TRAVEL_MODE,
+        "routing_preference": ROUTING_PREFERENCE,
         "signature": matrix_signature(obras),
         "entries": [
             {
@@ -195,8 +205,15 @@ def load_cache(
     path = Path(cache_path)
     if not path.exists():
         return None
-    raw = json.loads(path.read_text(encoding="utf-8"))
-    if raw.get("provider") != "google_routes" or raw.get("signature") != matrix_signature(obras):
+    try:
+        raw = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    if (
+        raw.get("version") != CACHE_SCHEMA_VERSION
+        or raw.get("provider") != "google_routes"
+        or raw.get("signature") != matrix_signature(obras)
+    ):
         return None
 
     location_matrix: dict[tuple[str, str], TravelValue] = {}
@@ -210,6 +227,10 @@ def load_cache(
         )
 
     nodes = unique_locations(obras)
+    expected = len(nodes) * len(nodes)
+    if len(location_matrix) != expected:
+        return None
+
     return GoogleRoutesMatrix(
         matrix=_expand_to_obras(obras, location_matrix),
         unique_locations=len(nodes),
@@ -236,12 +257,21 @@ def build_google_routes_matrix(
             return cached
 
     nodes = unique_locations(obras)
+    if not nodes:
+        raise ValueError("No hay coordenadas válidas para construir la matriz Google Routes.")
+
     location_matrix: dict[tuple[str, str], TravelValue] = {}
     billed_elements = 0
     for origins, destinations in _batch_pairs(nodes):
         billed_elements += len(origins) * len(destinations)
         location_matrix.update(
             _request_batch(api_key.strip(), origins, destinations, timeout_seconds)
+        )
+
+    expected = len(nodes) * len(nodes)
+    if len(location_matrix) != expected:
+        raise RuntimeError(
+            f"Matriz Google incompleta: {len(location_matrix)} de {expected} elementos. No se guardó caché."
         )
 
     save_cache(obras, location_matrix, cache_path)
