@@ -53,3 +53,25 @@ def test_physical_pair_uses_same_vehicle_when_they_share_origin():
     assert len(outbound) == 1
     assert set(outbound[0].pasajeros) == {"A", "B"}
     assert metrics.solo_legs == 0
+
+
+def test_legacy_config_without_vehicle_capacity_uses_default_four():
+    class LegacyConfig:
+        incluir_traslados = True
+        slot_minutos = 30
+
+        @staticmethod
+        def traslado_minutos_a_slots(minutes: float) -> int:
+            return 0 if minutes <= 0 else int((minutes + 29) // 30)
+
+    cfg = LegacyConfig()
+    plan = [item("DGOP", auditor, 2, 6) for auditor in ("A", "B", "C", "D")]
+    matrix = {
+        (DEPOT_ID, "DGOP"): TravelValue(10, 10, 30),
+        ("DGOP", DEPOT_ID): TravelValue(10, 10, 30),
+        ("DGOP", "DGOP"): TravelValue(0, 0, 0),
+        (DEPOT_ID, DEPOT_ID): TravelValue(0, 0, 0),
+    }
+    metrics = calculate_vehicle_plan(plan, matrix, cfg)
+    assert metrics.vehicle_trips == 2
+    assert all(leg.ocupacion == 4 for leg in metrics.legs if leg.distancia_km > 0)
