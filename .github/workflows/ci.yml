@@ -1,0 +1,34 @@
+name: CI
+
+on:
+  push:
+    branches: ["main", "v0-modelo-factibilidad"]
+  pull_request:
+    branches: ["main"]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+
+      - name: Instalar dependencias
+        run: pip install -r requirements.txt
+
+      - name: Ejecutar pruebas
+        run: pytest -q
+
+      - name: Prueba de integración con las 44 inspecciones
+        run: |
+          python main.py \
+            --min-days 2 \
+            --max-days 6 \
+            --time-limit 10 \
+            --output-dir /tmp/model-output

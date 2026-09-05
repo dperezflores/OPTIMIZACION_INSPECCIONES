@@ -1,0 +1,50 @@
+name: Ejecutar modelo V0
+
+on:
+  workflow_dispatch:
+    inputs:
+      min_days:
+        description: "Mínimo de días a evaluar"
+        required: true
+        default: "2"
+      max_days:
+        description: "Máximo de días a evaluar"
+        required: true
+        default: "6"
+      time_limit:
+        description: "Segundos máximos del solver por escenario"
+        required: true
+        default: "30"
+
+jobs:
+  solve:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+
+      - name: Instalar dependencias
+        run: pip install -r requirements.txt
+
+      - name: Ejecutar optimización
+        shell: bash
+        run: |
+          mkdir -p data/output
+          python main.py \
+            --min-days "${{ inputs.min_days }}" \
+            --max-days "${{ inputs.max_days }}" \
+            --time-limit "${{ inputs.time_limit }}" \
+            --output-dir data/output | tee data/output/ejecucion.txt
+
+      - name: Publicar resultados
+        uses: actions/upload-artifact@v4
+        with:
+          name: resultados-modelo-v0
+          path: data/output/
+          if-no-files-found: error
