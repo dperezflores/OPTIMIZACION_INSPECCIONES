@@ -2,7 +2,7 @@ name: CI
 
 on:
   push:
-    branches: ["main", "v0-modelo-factibilidad"]
+    branches: ["main", "v0-streamlit-dashboard"]
   pull_request:
     branches: ["main"]
 
@@ -24,6 +24,11 @@ jobs:
 
       - name: Ejecutar pruebas
         run: pytest -q
+
+      - name: Validar sintaxis y módulos Streamlit
+        run: |
+          python -m compileall -q app.py src services ui views
+          python -c "from services.optimization_service import load_context; from views.dashboard import render_dashboard; from views.planificacion import render_planificacion; from views.gantt import render_gantt; from views.mapa import render_mapa; c=load_context(); assert len(c.obras) == 44"
 
       - name: Prueba de integración con las 44 inspecciones
         run: |
