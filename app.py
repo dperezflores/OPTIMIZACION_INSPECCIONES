@@ -21,7 +21,7 @@ from views.mapa import render_mapa
 from views.planificacion import render_planificacion
 
 
-APP_SCHEMA_VERSION = "5.0.0"
+APP_SCHEMA_VERSION = "5.0.1"
 
 
 def _google_api_key() -> str:
@@ -94,7 +94,8 @@ with st.sidebar:
     optimize = st.button("Optimizar y refinar", type="primary", use_container_width=True)
     st.divider()
     st.caption(
-        f"Jornada completa: salida ASEG desde {context.config.hora_inicio} y regreso antes de {context.config.hora_fin}\n\n"
+        f"Ventana de actividades: {context.config.hora_inicio}–{context.config.hora_fin}\n\n"
+        "Salida/regreso ASEG: se contabilizan completos; el tiempo fuera de esa ventana se penaliza como adicional.\n\n"
         f"Intervalo CP-SAT: {context.config.slot_minutos} min\n\n"
         f"Nodos de ruta: {context.unique_location_count}\n\n"
         "Motor V5: ASEG + Google Routes + CP-SAT + ALNS + vehículos"
