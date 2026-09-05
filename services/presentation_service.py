@@ -5,6 +5,7 @@ from datetime import datetime
 import pandas as pd
 
 from src.config import OptimizationConfig
+from src.models import TIPO_PROYECTO
 from src.optimizer import OptimizationRun
 from .optimization_service import OptimizationContext
 
@@ -12,58 +13,50 @@ from .optimization_service import OptimizationContext
 def build_scenarios_dataframe(run: OptimizationRun) -> pd.DataFrame:
     rows = []
     for result in run.scenarios:
-        rows.append(
-            {
-                "Días": result.dias,
-                "Estado": (
-                    "Factible"
-                    if result.factible
-                    else "No factible"
-                    if result.probado_infactible
-                    else result.status
-                ),
-                "Tiempo solver (s)": round(result.wall_time_seconds, 2),
-                "Objetivo": result.objective_value,
-            }
-        )
+        rows.append({
+            "Días": result.dias,
+            "Estado": (
+                "Factible" if result.factible
+                else "No factible" if result.probado_infactible
+                else result.status
+            ),
+            "Tiempo solver (s)": round(result.wall_time_seconds, 2),
+            "Objetivo": result.objective_value,
+        })
     return pd.DataFrame(rows)
 
 
-def build_plan_dataframe(
-    run: OptimizationRun,
-    config: OptimizationConfig,
-) -> pd.DataFrame:
+def _equipo(item) -> str:
+    if item.auditor_acompanante:
+        return " + ".join(sorted((item.auditor_responsable, item.auditor_acompanante)))
+    return item.auditor_responsable
+
+
+def build_plan_dataframe(run: OptimizationRun, config: OptimizationConfig) -> pd.DataFrame:
     if run.best is None:
         return pd.DataFrame()
 
     rows = []
     for item in run.best.plan:
-        pair = " + ".join(
-            sorted((item.auditor_responsable, item.auditor_acompanante))
-        )
-        rows.append(
-            {
-                "Día": item.dia,
-                "Inicio": config.slot_a_hora(item.inicio_slot),
-                "Fin": config.slot_a_hora(item.fin_slot),
-                "Obra ID": item.obra_id,
-                "Contrato": item.contrato,
-                "Obra": item.descripcion,
-                "Responsable": item.auditor_responsable,
-                "Acompañante": item.auditor_acompanante,
-                "Pareja": pair,
-                "Supervisor": item.supervisor_seleccionado or "Sin dato",
-                "Contratista": item.contratista_id or "Sin dato",
-                "Prioridad": item.prioridad,
-            }
-        )
-    return pd.DataFrame(rows).sort_values(["Día", "Inicio", "Pareja"])
+        rows.append({
+            "Día": item.dia,
+            "Inicio": config.slot_a_hora(item.inicio_slot),
+            "Fin": config.slot_a_hora(item.fin_slot),
+            "Tipo": "Proyecto documental" if item.tipo_revision == TIPO_PROYECTO else "Inspección física",
+            "Obra ID": item.obra_id,
+            "Contrato": item.contrato,
+            "Obra": item.descripcion,
+            "Responsable": item.auditor_responsable,
+            "Acompañante": item.auditor_acompanante or "No requerido",
+            "Equipo": _equipo(item),
+            "Supervisor": item.supervisor_seleccionado or "Sin dato",
+            "Contratista": item.contratista_id or "Sin dato",
+            "Prioridad": item.prioridad,
+        })
+    return pd.DataFrame(rows).sort_values(["Día", "Inicio", "Equipo"])
 
 
-def build_gantt_dataframe(
-    run: OptimizationRun,
-    config: OptimizationConfig,
-) -> pd.DataFrame:
+def build_gantt_dataframe(run: OptimizationRun, config: OptimizationConfig) -> pd.DataFrame:
     if run.best is None:
         return pd.DataFrame()
 
@@ -75,19 +68,15 @@ def build_gantt_dataframe(
         day_offset = item.dia - 1
         start = base_date.replace(hour=start_h, minute=start_m) + pd.Timedelta(days=day_offset)
         end = base_date.replace(hour=end_h, minute=end_m) + pd.Timedelta(days=day_offset)
-        pair = " + ".join(
-            sorted((item.auditor_responsable, item.auditor_acompanante))
-        )
-        rows.append(
-            {
-                "Pareja": pair,
-                "Inicio": start,
-                "Fin": end,
-                "Obra": f"{item.obra_id} · {item.contrato}",
-                "Día": f"Día {item.dia}",
-                "Responsable": item.auditor_responsable,
-            }
-        )
+        rows.append({
+            "Equipo": _equipo(item),
+            "Inicio": start,
+            "Fin": end,
+            "Obra": f"{item.obra_id} · {item.contrato}",
+            "Día": f"Día {item.dia}",
+            "Responsable": item.auditor_responsable,
+            "Tipo": "Proyecto documental" if item.tipo_revision == TIPO_PROYECTO else "Inspección física",
+        })
     return pd.DataFrame(rows)
 
 
@@ -103,15 +92,14 @@ def build_map_dataframe(
     for obra in context.obras:
         if obra.latitud is None or obra.longitud is None:
             continue
-        rows.append(
-            {
-                "lat": obra.latitud,
-                "lon": obra.longitud,
-                "obra_id": obra.obra_id,
-                "contrato": obra.contrato,
-                "auditor": obra.auditor_responsable,
-                "dia": assigned_day.get(obra.obra_id),
-                "descripcion": obra.descripcion,
-            }
-        )
+        rows.append({
+            "lat": obra.latitud,
+            "lon": obra.longitud,
+            "obra_id": obra.obra_id,
+            "contrato": obra.contrato,
+            "auditor": obra.auditor_responsable,
+            "dia": assigned_day.get(obra.obra_id),
+            "tipo": "Proyecto documental" if obra.tipo_revision == TIPO_PROYECTO else "Inspección física",
+            "descripcion": obra.descripcion,
+        })
     return pd.DataFrame(rows)
