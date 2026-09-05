@@ -1,0 +1,50 @@
+from __future__ import annotations
+
+from dataclasses import dataclass
+from datetime import datetime, timedelta
+import math
+
+
+def _parse_hhmm(value: str) -> datetime:
+    return datetime.strptime(value, "%H:%M")
+
+
+@dataclass(frozen=True)
+class OptimizationConfig:
+    hora_inicio: str = "08:00"
+    hora_fin: str = "17:00"
+    slot_minutos: int = 30
+    dias_min: int = 2
+    dias_max: int = 6
+    time_limit_seconds: float = 30.0
+    num_search_workers: int = 8
+    prioridad_default: int = 3
+    modo_parejas: str = "estables_por_dia"
+
+    @property
+    def minutos_jornada(self) -> int:
+        inicio = _parse_hhmm(self.hora_inicio)
+        fin = _parse_hhmm(self.hora_fin)
+        minutos = int((fin - inicio).total_seconds() // 60)
+        if minutos <= 0:
+            raise ValueError("hora_fin debe ser posterior a hora_inicio.")
+        return minutos
+
+    @property
+    def slots_por_dia(self) -> int:
+        if self.slot_minutos <= 0:
+            raise ValueError("slot_minutos debe ser mayor que cero.")
+        if self.minutos_jornada % self.slot_minutos != 0:
+            raise ValueError(
+                "La jornada debe ser divisible exactamente entre slot_minutos."
+            )
+        return self.minutos_jornada // self.slot_minutos
+
+    def minutos_a_slots(self, minutos: int) -> int:
+        """Redondea hacia arriba para nunca subestimar una inspección."""
+        return max(1, math.ceil(minutos / self.slot_minutos))
+
+    def slot_a_hora(self, slot: int) -> str:
+        base = _parse_hhmm(self.hora_inicio)
+        value = base + timedelta(minutes=slot * self.slot_minutos)
+        return value.strftime("%H:%M")

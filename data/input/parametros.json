@@ -1,0 +1,11 @@
+{
+  "hora_inicio": "08:00",
+  "hora_fin": "17:00",
+  "slot_minutos": 30,
+  "dias_min": 2,
+  "dias_max": 6,
+  "time_limit_seconds": 30,
+  "num_search_workers": 8,
+  "prioridad_default": 3,
+  "modo_parejas": "estables_por_dia"
+}
