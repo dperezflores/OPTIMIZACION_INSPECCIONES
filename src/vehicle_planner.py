@@ -261,7 +261,10 @@ def _build_routing_model(
         return _routing_minutes(matrix, origin, destination, config)
 
     time_index = routing.RegisterTransitCallback(time_callback)
-    routing.AddDimension(time_index, max(max_wait, config.slot_minutos), max(1, horizon), False, "Time")
+    # El vehículo puede permanecer estacionado durante una actividad completa.
+    # El límite de espera de 90 min corresponde al PASAJERO antes de ser recogido,
+    # y ya está expresado en las ventanas pickup_earliest/pickup_latest.
+    routing.AddDimension(time_index, max(1, horizon), max(1, horizon), False, "Time")
     time_dimension = routing.GetDimensionOrDie("Time")
     for node_id, node in enumerate(nodes[1:], start=1):
         index = manager.NodeToIndex(node_id)
@@ -289,9 +292,8 @@ def _build_routing_model(
             )
 
     # Incluso en la fase de factibilidad damos al constructor una señal de costo.
-    # Con costo cero PARALLEL_CHEAPEST_INSERTION podía no descubrir una solución de
-    # 1 vehículo y saltar incorrectamente a 2. Esto NO mezcla objetivos: el número
-    # de vehículos se fija externamente y se prueba estrictamente k=1,2,3,...
+    # El número de vehículos sigue siendo lexicográfico: k se fija externamente y
+    # se prueba estrictamente 1, 2, 3... antes de optimizar km/tiempo con ese k.
     def route_cost(from_index: int, to_index: int) -> int:
         origin = nodes[manager.IndexToNode(from_index)].location_id
         destination = nodes[manager.IndexToNode(to_index)].location_id
