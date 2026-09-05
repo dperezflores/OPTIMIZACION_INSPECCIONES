@@ -12,10 +12,8 @@ def render_mapa(context: OptimizationContext, run: OptimizationRun | None) -> No
 
     if run is None:
         st.info("Ejecuta la optimización para asociar las obras con un día propuesto.")
-        map_df = build_map_dataframe(context, run=None)  # type: ignore[arg-type]
-    else:
-        map_df = build_map_dataframe(context, run)
 
+    map_df = build_map_dataframe(context, run)
     if map_df.empty:
         st.warning("No hay coordenadas disponibles para mostrar.")
         return
@@ -27,7 +25,7 @@ def render_mapa(context: OptimizationContext, run: OptimizationRun | None) -> No
     selected_day = st.selectbox("Día del mapa", day_options, key="map_day_filter")
     visible = map_df if selected_day == "Todos" else map_df[map_df["dia"] == selected_day]
 
-    st.map(visible[["lat", "lon"]], use_container_width=True)
+    st.map(visible[["lat", "lon"]])
     st.dataframe(
         visible[["obra_id", "contrato", "auditor", "dia", "descripcion"]],
         use_container_width=True,
