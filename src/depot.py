@@ -1,0 +1,6 @@
+from __future__ import annotations
+
+DEPOT_ID = "DEPOT_ASEG"
+DEPOT_NAME = "Instalaciones ASEG Guanajuato"
+DEPOT_LATITUDE = 20.98578235569773
+DEPOT_LONGITUDE = -101.28647018931673
