@@ -17,6 +17,7 @@ from .vehicle_planner import calculate_vehicle_plan
 # incorporamos pesos decimales de quality.py para conservar las proporciones del
 # objetivo histórico y poder representar, por ejemplo, pesos de 0.4.
 OBJECTIVE_SCALE = 1000
+PRIORITY_CENTER_SCALE = 10
 
 
 class FeasibilitySolver:
@@ -243,10 +244,19 @@ class FeasibilitySolver:
         objective_terms = []
         travel_objective_terms = []
 
+        prioridad_promedio = (
+            sum(float(obra.prioridad) for obra in self.obras) / len(self.obras)
+            if self.obras
+            else float(self.config.prioridad_default)
+        )
+
         for obra in self.obras:
             obra_key = obra.obra_id
             duration = self.config.minutos_a_slots(obra.duracion_minutos)
             day_vars = []
+            # La desviación centrada vale 0 para una obra de prioridad promedio.
+            # Se multiplica por 10 para mantener coeficientes enteros en CP-SAT.
+            prioridad_centrada = int(round((float(obra.prioridad) - prioridad_promedio) * PRIORITY_CENTER_SCALE))
             for d in days:
                 y = model.new_bool_var(f"obra__{obra_key}__d{d}")
                 assign[(obra_key, d)] = y
@@ -289,7 +299,10 @@ class FeasibilitySolver:
                             objective_terms.append(self.config.peso_obj_supervisor_alternativo * z)
                     model.add(sum(z_vars) == y)
 
-                objective_terms.append((d * obra.prioridad * self.config.peso_obj_prioridad_dia) * y)
+                if prioridad_centrada:
+                    objective_terms.append(
+                        (d * prioridad_centrada * self.config.peso_obj_prioridad_dia) * y
+                    )
                 objective_terms.append(self.config.peso_obj_inicio_temprano * s)
             model.add_exactly_one(day_vars)
 
