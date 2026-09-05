@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from statistics import pstdev
 
 from .config import OptimizationConfig
-from .distance_matrix import TravelValue
+from .distance_matrix import TravelValue, calculate_plan_travel_metrics
 from .models import PlanItem, TIPO_FISICA
 
 
@@ -43,13 +43,7 @@ def calculate_quality_metrics(
     matrix: dict[tuple[str, str], TravelValue],
     config: OptimizationConfig,
 ) -> QualityMetrics:
-    """Métricas operativas posteriores a la solución.
-
-    - Espera: hueco entre actividades consecutivas menos el viaje necesario.
-    - Desbalance por día: rango de minutos-auditor ocupados entre días.
-    - Desbalance por auditor: desviación estándar de minutos ocupados por auditor.
-    - Cambios de acompañante: cambios consecutivos de acompañante para un responsable.
-    """
+    """Calcula calidad operativa comparable entre soluciones del mismo conjunto."""
     sequences = _auditor_sequences(plan)
     waiting = 0.0
     auditor_load: dict[str, float] = defaultdict(float)
@@ -87,9 +81,14 @@ def calculate_quality_metrics(
                 companion_changes += 1
             previous_companion = item.auditor_acompanante
 
-    # Índice interno para comparar soluciones del mismo conjunto. Menor es mejor.
+    travel = calculate_plan_travel_metrics(plan, matrix)
+
+    # Índice interno, sin unidades físicas. Menor = mejor para el mismo conjunto.
     operating_cost = (
-        config.peso_calidad_espera * waiting
+        config.peso_calidad_traslado_auditor * travel.auditor_min
+        + config.peso_calidad_traslado_supervisor * travel.supervisor_min
+        + config.peso_calidad_traslado_contratista * travel.contratista_min
+        + config.peso_calidad_espera * waiting
         + config.peso_calidad_balance_dia * day_imbalance
         + config.peso_calidad_balance_auditor * auditor_imbalance
         + config.peso_calidad_cambio_acompanante * companion_changes
