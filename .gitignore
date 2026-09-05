@@ -9,3 +9,8 @@ venv/
 # Resultados generados por el motor.
 data/output/*
 !data/output/README.md
+
+# Cache local de Google Routes. Nunca se versiona para evitar regeneraciones
+# accidentales o mezclar matrices de diferentes conjuntos de coordenadas.
+data/cache/*
+!data/cache/.gitkeep
