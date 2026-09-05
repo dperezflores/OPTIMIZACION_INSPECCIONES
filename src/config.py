@@ -29,9 +29,7 @@ class OptimizationConfig:
 
     # V3: función objetivo de calidad dentro de cada escenario de días.
     peso_obj_prioridad_dia: int = 120
-    peso_obj_traslado_auditor: int = 35
-    peso_obj_traslado_supervisor: int = 10
-    peso_obj_traslado_contratista: int = 10
+    peso_obj_dispersion_geografica: int = 2
     peso_obj_balance_dia: int = 20
     peso_obj_balance_auditor: int = 8
     peso_obj_inicio_temprano: int = 1
