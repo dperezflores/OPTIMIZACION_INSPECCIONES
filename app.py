@@ -12,6 +12,7 @@ from services.optimization_service import (
     load_context,
     run_optimization,
 )
+from src.depot import DEPOT_LATITUDE, DEPOT_LONGITUDE
 from ui.components import render_header, render_kpis, render_v0_notice
 from ui.styles import apply_styles
 from views.dashboard import render_dashboard
@@ -20,7 +21,7 @@ from views.mapa import render_mapa
 from views.planificacion import render_planificacion
 
 
-APP_SCHEMA_VERSION = "4.0.0"
+APP_SCHEMA_VERSION = "5.0.0"
 
 
 def _google_api_key() -> str:
@@ -53,18 +54,10 @@ with st.sidebar:
     min_days = st.number_input("Mínimo de días", min_value=1, max_value=15, value=int(context.config.dias_min), step=1)
     max_days = st.number_input("Máximo de días", min_value=int(min_days), max_value=20, value=max(int(min_days), int(context.config.dias_max)), step=1)
     time_limit = st.number_input("Tiempo máximo por escenario (s)", min_value=1.0, max_value=300.0, value=float(context.config.time_limit_seconds), step=5.0)
-    compare_all = st.checkbox(
-        "Comparar todos los escenarios del rango",
-        value=True,
-        help="Resuelve cada cantidad de días para comparar calidad operativa.",
-    )
+    compare_all = st.checkbox("Comparar todos los escenarios del rango", value=True)
 
     st.markdown("#### Refinamiento ALNS")
-    use_alns = st.checkbox(
-        "Refinar la mejor solución con ALNS",
-        value=True,
-        help="ALNS libera parcialmente la agenda y CP-SAT repara cada vecindario manteniendo todas las restricciones duras.",
-    )
+    use_alns = st.checkbox("Refinar la mejor solución con ALNS", value=True)
     if use_alns:
         alns_iterations = st.number_input("Iteraciones ALNS", min_value=1, max_value=100, value=20, step=5)
         alns_repair_time = st.number_input("Tiempo CP-SAT por reparación (s)", min_value=0.5, max_value=20.0, value=3.0, step=0.5)
@@ -72,26 +65,28 @@ with st.sidebar:
     else:
         alns_iterations, alns_repair_time, alns_destroy = 1, 1.0, 0.20
 
-    st.markdown("#### Fuente de traslados")
-    provider_label = st.radio(
-        "Matriz de tiempos y distancias",
-        options=["Google Routes V2", "Haversine V1 (respaldo)"],
-        index=0,
+    st.markdown("#### Logística V5")
+    st.caption(
+        f"Base ASEG: {DEPOT_LATITUDE:.6f}, {DEPOT_LONGITUDE:.6f}\n\n"
+        f"Capacidad por vehículo: {context.config.capacidad_vehiculo} pasajeros\n\n"
+        "La flota se considera suficiente; el modelo penaliza vehículos/viajes individuales innecesarios."
     )
+
+    st.markdown("#### Fuente de traslados")
+    provider_label = st.radio("Matriz de tiempos y distancias", options=["Google Routes V2", "Haversine V1 (respaldo)"], index=0)
     travel_provider = TRAVEL_PROVIDER_GOOGLE if provider_label.startswith("Google") else TRAVEL_PROVIDER_HAVERSINE
 
     if travel_provider == TRAVEL_PROVIDER_GOOGLE:
         if cache is not None:
-            st.success(f"Matriz Google disponible en caché para {cache.unique_locations} ubicaciones únicas.")
+            st.success(f"Matriz Google disponible en caché para {cache.unique_locations} nodos de ruta.")
         elif google_key:
-            st.info(f"La primera optimización consultará Routes API para {context.unique_location_count} ubicaciones únicas y guardará caché.")
+            st.info(
+                f"V5 incorporó ASEG como nuevo nodo. La próxima optimización consultará Routes API para "
+                f"{context.unique_location_count} nodos y guardará una nueva caché."
+            )
         else:
             st.error("No se encontró GOOGLE_MAPS_API_KEY en Streamlit Secrets ni en variables de entorno.")
-        force_refresh = st.checkbox(
-            "Forzar actualización de matriz Google",
-            value=False,
-            help="Actívalo sólo si realmente deseas volver a consultar Google.",
-        )
+        force_refresh = st.checkbox("Forzar actualización de matriz Google", value=False)
     else:
         force_refresh = False
         st.warning("Modo aproximado V1: no usa Google ni genera consumo de Routes API.")
@@ -99,10 +94,10 @@ with st.sidebar:
     optimize = st.button("Optimizar y refinar", type="primary", use_container_width=True)
     st.divider()
     st.caption(
-        f"Jornada: {context.config.hora_inicio}–{context.config.hora_fin}\n\n"
+        f"Jornada completa: salida ASEG desde {context.config.hora_inicio} y regreso antes de {context.config.hora_fin}\n\n"
         f"Intervalo CP-SAT: {context.config.slot_minutos} min\n\n"
-        f"Ubicaciones únicas: {context.unique_location_count}\n\n"
-        "Motor V4: Google Routes + CP-SAT + ALNS"
+        f"Nodos de ruta: {context.unique_location_count}\n\n"
+        "Motor V5: ASEG + Google Routes + CP-SAT + ALNS + vehículos"
     )
 
 if optimize:
@@ -123,7 +118,7 @@ if optimize:
             alns_destroy_fraction=float(alns_destroy),
         )
         try:
-            with st.spinner("Resolviendo escenarios CP-SAT y refinando la mejor solución con ALNS..."):
+            with st.spinner("Resolviendo agenda desde ASEG, logística vehicular y refinamiento ALNS..."):
                 st.session_state.optimization_run = run_optimization(context, request)
             st.rerun()
         except Exception as exc:
