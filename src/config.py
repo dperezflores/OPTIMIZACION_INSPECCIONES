@@ -50,6 +50,11 @@ class OptimizationConfig:
     peso_calidad_viaje_solo: float = 12.0
     peso_calidad_viaje_vehicular: float = 2.0
 
+    # La ventana 08:00-17:00 sigue siendo la ventana de actividades. Los traslados
+    # desde/hacia ASEG pueden extenderla y se penalizan para que sólo ocurra cuando
+    # sea necesario (p. ej., revisiones de 8-8.5 h).
+    peso_calidad_tiempo_adicional: float = 3.0
+
     @property
     def minutos_jornada(self) -> int:
         inicio = _parse_hhmm(self.hora_inicio)
