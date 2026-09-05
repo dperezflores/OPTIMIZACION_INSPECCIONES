@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from collections import defaultdict
 from dataclasses import dataclass
-from math import ceil
 
 from .config import OptimizationConfig
 from .depot import DEPOT_ID
@@ -33,9 +32,7 @@ class _PassengerLeg:
     motivo: str
 
 
-def _travel_value(
-    matrix: dict[tuple[str, str], TravelValue], origin: str, destination: str
-) -> TravelValue:
+def _travel_value(matrix: dict[tuple[str, str], TravelValue], origin: str, destination: str) -> TravelValue:
     return matrix.get((origin, destination), TravelValue(0.0, 0.0, 0.0))
 
 
@@ -63,7 +60,8 @@ def _base_passenger_legs(
         for item in items:
             slots = travel_slots(matrix, previous_id, item.obra_id, config)
             if previous_id == DEPOT_ID:
-                departure = max(0, item.inicio_slot - slots)
+                # Puede ser negativo: representa salida de ASEG antes de las 08:00.
+                departure = item.inicio_slot - slots
             else:
                 departure = previous_end
             arrival = departure + slots
@@ -104,13 +102,7 @@ def _force_physical_pairs(
     matrix: dict[tuple[str, str], TravelValue],
     config: OptimizationConfig,
 ) -> tuple[list[_PassengerLeg], int]:
-    """Hace explícito que responsable y acompañante comparten el tramo a campo.
-
-    Si ambos llegan desde el mismo origen y hora, comparten ese tramo. Si vienen de
-    lugares distintos, se modela un reencuentro conservador en ASEG antes de salir
-    juntos. Si el hueco de agenda no alcanza para ese reencuentro, se registra una
-    incidencia para penalizar esa solución durante el refinamiento.
-    """
+    """Responsable y acompañante comparten el tramo final hacia la inspección física."""
     result = list(passenger_legs)
     issues = 0
     for item in plan:
@@ -126,13 +118,9 @@ def _force_physical_pairs(
         if la.origen_id == lb.origen_id and la.salida_slot == lb.salida_slot:
             continue
 
-        # Sustituimos los tramos individuales de llegada por un reencuentro en ASEG.
         result = [leg for leg in result if leg not in (la, lb)]
         shared_slots = travel_slots(matrix, DEPOT_ID, item.obra_id, config)
         shared_departure = item.inicio_slot - shared_slots
-        if shared_departure < 0:
-            issues += 1
-            shared_departure = 0
 
         for original in (la, lb):
             if original.origen_id == DEPOT_ID:
@@ -154,40 +142,17 @@ def _force_physical_pairs(
                 )
             )
 
-        result.append(
-            _PassengerLeg(
-                auditor=a,
-                dia=item.dia,
-                origen_id=DEPOT_ID,
-                destino_id=item.obra_id,
-                salida_slot=shared_departure,
-                llegada_slot=item.inicio_slot,
-                motivo=f"Inspección física compartida con {b}",
-            )
-        )
-        result.append(
-            _PassengerLeg(
-                auditor=b,
-                dia=item.dia,
-                origen_id=DEPOT_ID,
-                destino_id=item.obra_id,
-                salida_slot=shared_departure,
-                llegada_slot=item.inicio_slot,
-                motivo=f"Inspección física compartida con {a}",
-            )
-        )
+        result.append(_PassengerLeg(a, item.dia, DEPOT_ID, item.obra_id, shared_departure, item.inicio_slot, f"Inspección física compartida con {b}"))
+        result.append(_PassengerLeg(b, item.dia, DEPOT_ID, item.obra_id, shared_departure, item.inicio_slot, f"Inspección física compartida con {a}"))
     return result, issues
 
 
 def _group_passenger_legs(
-    legs: list[_PassengerLeg],
-    matrix: dict[tuple[str, str], TravelValue],
-    config: OptimizationConfig,
+    legs: list[_PassengerLeg], matrix: dict[tuple[str, str], TravelValue], config: OptimizationConfig
 ) -> list[VehicleLeg]:
     groups: dict[tuple[int, str, str, int, int], list[_PassengerLeg]] = defaultdict(list)
     for leg in legs:
-        key = (leg.dia, leg.origen_id, leg.destino_id, leg.salida_slot, leg.llegada_slot)
-        groups[key].append(leg)
+        groups[(leg.dia, leg.origen_id, leg.destino_id, leg.salida_slot, leg.llegada_slot)].append(leg)
 
     vehicle_legs: list[VehicleLeg] = []
     counter_by_day: dict[int, int] = defaultdict(int)
@@ -225,7 +190,6 @@ def _peak_concurrent(legs: list[VehicleLeg]) -> int:
     for day_legs in by_day.values():
         events: list[tuple[int, int]] = []
         for leg in day_legs:
-            # Un traslado de cero minutos no requiere vehículo circulando.
             if leg.llegada_slot <= leg.salida_slot:
                 continue
             events.append((leg.salida_slot, 1))
@@ -238,17 +202,13 @@ def _peak_concurrent(legs: list[VehicleLeg]) -> int:
 
 
 def calculate_vehicle_plan(
-    plan: list[PlanItem],
-    matrix: dict[tuple[str, str], TravelValue],
-    config: OptimizationConfig,
+    plan: list[PlanItem], matrix: dict[tuple[str, str], TravelValue], config: OptimizationConfig
 ) -> VehiclePlanMetrics:
     if not plan:
         return VehiclePlanMetrics((), 0.0, 0.0, 0, 0, 0, 0, 0)
 
     passenger_legs, inbound = _base_passenger_legs(plan, matrix, config)
-    passenger_legs, rendezvous_issues = _force_physical_pairs(
-        plan, passenger_legs, inbound, matrix, config
-    )
+    passenger_legs, rendezvous_issues = _force_physical_pairs(plan, passenger_legs, inbound, matrix, config)
     vehicle_legs = _group_passenger_legs(passenger_legs, matrix, config)
     km = sum(leg.distancia_km for leg in vehicle_legs)
     minutes = sum(leg.tiempo_min for leg in vehicle_legs)
