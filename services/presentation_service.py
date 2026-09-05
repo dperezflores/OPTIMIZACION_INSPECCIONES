@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from datetime import datetime
-
 import pandas as pd
 
 from src.config import OptimizationConfig
@@ -15,13 +14,12 @@ def build_scenarios_dataframe(run: OptimizationRun) -> pd.DataFrame:
     for result in run.scenarios:
         rows.append({
             "Días": result.dias,
-            "Estado": (
-                "Factible" if result.factible
-                else "No factible" if result.probado_infactible
-                else result.status
-            ),
+            "Estado": "Factible" if result.factible else "No factible" if result.probado_infactible else result.status,
             "Tiempo solver (s)": round(result.wall_time_seconds, 2),
-            "Objetivo": result.objective_value,
+            "Km-auditor": round(result.auditor_travel_km, 1) if result.factible else None,
+            "Horas traslado auditor": round(result.auditor_travel_min / 60, 1) if result.factible else None,
+            "Km supervisores": round(result.supervisor_travel_km, 1) if result.factible else None,
+            "Km contratistas": round(result.contractor_travel_km, 1) if result.factible else None,
         })
     return pd.DataFrame(rows)
 
@@ -39,7 +37,6 @@ def _equipo(item) -> str:
 def build_plan_dataframe(run: OptimizationRun, config: OptimizationConfig) -> pd.DataFrame:
     if run.best is None:
         return pd.DataFrame()
-
     rows = []
     for item in run.best.plan:
         rows.append({
@@ -63,19 +60,16 @@ def build_plan_dataframe(run: OptimizationRun, config: OptimizationConfig) -> pd
 def build_gantt_dataframe(run: OptimizationRun, config: OptimizationConfig) -> pd.DataFrame:
     if run.best is None:
         return pd.DataFrame()
-
     rows = []
     base_date = datetime(2026, 1, 1)
     for item in run.best.plan:
         start_h, start_m = map(int, config.slot_a_hora(item.inicio_slot).split(":"))
         end_h, end_m = map(int, config.slot_a_hora(item.fin_slot).split(":"))
         day_offset = item.dia - 1
-        start = base_date.replace(hour=start_h, minute=start_m) + pd.Timedelta(days=day_offset)
-        end = base_date.replace(hour=end_h, minute=end_m) + pd.Timedelta(days=day_offset)
         rows.append({
             "Equipo": _equipo(item),
-            "Inicio": start,
-            "Fin": end,
+            "Inicio": base_date.replace(hour=start_h, minute=start_m) + pd.Timedelta(days=day_offset),
+            "Fin": base_date.replace(hour=end_h, minute=end_m) + pd.Timedelta(days=day_offset),
             "Obra": f"{item.obra_id} · {item.contrato}",
             "Día": f"Día {item.dia}",
             "Responsable": item.auditor_responsable,
@@ -84,24 +78,17 @@ def build_gantt_dataframe(run: OptimizationRun, config: OptimizationConfig) -> p
     return pd.DataFrame(rows)
 
 
-def build_map_dataframe(
-    context: OptimizationContext,
-    run: OptimizationRun | None,
-) -> pd.DataFrame:
+def build_map_dataframe(context: OptimizationContext, run: OptimizationRun | None) -> pd.DataFrame:
     assigned_day = {}
     if run is not None and run.best is not None:
         assigned_day = {item.obra_id: item.dia for item in run.best.plan}
-
     rows = []
     for obra in context.obras:
         if obra.latitud is None or obra.longitud is None:
             continue
         rows.append({
-            "lat": obra.latitud,
-            "lon": obra.longitud,
-            "obra_id": obra.obra_id,
-            "contrato": obra.contrato,
-            "auditor": obra.auditor_responsable,
+            "lat": obra.latitud, "lon": obra.longitud, "obra_id": obra.obra_id,
+            "contrato": obra.contrato, "auditor": obra.auditor_responsable,
             "dia": assigned_day.get(obra.obra_id),
             "tipo": "Proyecto documental" if _tipo_revision(obra) == TIPO_PROYECTO else "Inspección física",
             "descripcion": obra.descripcion,
