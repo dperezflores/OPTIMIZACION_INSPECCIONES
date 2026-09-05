@@ -63,11 +63,11 @@ def render_v0_notice() -> None:
     st.markdown(
         """
         <div class="model-note">
-        <strong>Alcance V5:</strong> todos los auditores parten de las instalaciones de ASEG y deben poder regresar
-        dentro de la jornada. Los vehículos tienen capacidad de 4 personas; el modelo favorece viajes compartidos,
-        permite viajes individuales cuando son útiles y penaliza su uso innecesario. En inspecciones físicas,
-        responsable y acompañante se modelan como un viaje compartido hacia el sitio. Google Routes aporta la red vial,
-        CP-SAT garantiza la agenda y ALNS refina la calidad operativa y vehicular.
+        <strong>Alcance V5:</strong> todos los auditores parten de las instalaciones de ASEG y regresan a ASEG al terminar.
+        La ventana 08:00–17:00 corresponde a las actividades de revisión; si el viaje exige salir antes o regresar después,
+        ese tiempo se contabiliza y se penaliza para que sólo se utilice cuando sea necesario. Los vehículos tienen capacidad
+        de 4 personas; el modelo favorece viajes compartidos y permite viajes individuales cuando aportan flexibilidad.
+        En inspecciones físicas, responsable y acompañante se modelan como un viaje compartido hacia el sitio.
         </div>
         """,
         unsafe_allow_html=True,
