@@ -53,3 +53,37 @@ jobs:
             --max-days 5 \
             --time-limit 15 \
             --output-dir /tmp/model-output-5
+
+      - name: Integración V4 CP-SAT + ALNS con 44 actividades
+        run: |
+          python - <<'PY'
+          from services.optimization_service import (
+              OptimizationRequest,
+              TRAVEL_PROVIDER_HAVERSINE,
+              load_context,
+              run_optimization,
+          )
+          context = load_context()
+          run = run_optimization(
+              context,
+              OptimizationRequest(
+                  min_days=4,
+                  max_days=4,
+                  time_limit_seconds=5,
+                  travel_provider=TRAVEL_PROVIDER_HAVERSINE,
+                  compare_all_scenarios=False,
+                  use_alns=True,
+                  alns_iterations=2,
+                  alns_repair_time_seconds=1.0,
+                  alns_destroy_fraction=0.20,
+              ),
+          )
+          assert run.quality_best is not None
+          assert run.refined_best is not None
+          assert run.refined_best.factible
+          assert len(run.refined_best.plan) == 44
+          assert run.refined_best.dias == 4
+          assert run.refined_best.operational_cost <= run.quality_best.operational_cost + 1e-9
+          print('CP-SAT:', round(run.quality_best.operational_cost, 2))
+          print('ALNS:', round(run.refined_best.operational_cost, 2))
+          PY
