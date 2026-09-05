@@ -30,10 +30,26 @@ jobs:
           python -m compileall -q app.py src services ui views
           python -c "from services.optimization_service import load_context; from views.dashboard import render_dashboard; from views.planificacion import render_planificacion; from views.gantt import render_gantt; from views.mapa import render_mapa; c=load_context(); assert len(c.obras) == 44; assert sum(o.tipo_revision == 'PROYECTO_DOCUMENTAL' for o in c.obras) == 17"
 
-      - name: Prueba de integración con las 44 inspecciones
+      - name: Mínimo factible V1
         run: |
           python main.py \
             --min-days 1 \
             --max-days 6 \
             --time-limit 15 \
-            --output-dir /tmp/model-output
+            --output-dir /tmp/model-output-min
+
+      - name: Comparar escenario 4 días
+        run: |
+          python main.py \
+            --min-days 4 \
+            --max-days 4 \
+            --time-limit 15 \
+            --output-dir /tmp/model-output-4
+
+      - name: Comparar escenario 5 días
+        run: |
+          python main.py \
+            --min-days 5 \
+            --max-days 5 \
+            --time-limit 15 \
+            --output-dir /tmp/model-output-5
