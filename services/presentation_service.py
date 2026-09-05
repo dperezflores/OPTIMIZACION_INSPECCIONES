@@ -4,6 +4,7 @@ from datetime import datetime
 import pandas as pd
 
 from src.config import OptimizationConfig
+from src.depot import DEPOT_ID, DEPOT_NAME
 from src.models import ScenarioResult, TIPO_FISICA, TIPO_PROYECTO
 from src.optimizer import OptimizationRun
 from .optimization_service import OptimizationContext
@@ -18,6 +19,11 @@ def build_scenarios_dataframe(run: OptimizationRun) -> pd.DataFrame:
             "Tiempo solver (s)": round(result.wall_time_seconds, 2),
             "Km-auditor": round(result.auditor_travel_km, 1) if result.factible else None,
             "Horas traslado auditor": round(result.auditor_travel_min / 60, 1) if result.factible else None,
+            "Km-vehículo": round(result.vehicle_km, 1) if result.factible else None,
+            "Viajes vehículo": result.vehicle_trips if result.factible else None,
+            "Viajes solo": result.solo_vehicle_legs if result.factible else None,
+            "Viajes compartidos": result.shared_vehicle_legs if result.factible else None,
+            "Vehículos simultáneos máx.": result.vehicles_required_peak if result.factible else None,
             "Espera auditor (h)": round(result.waiting_auditor_min / 60, 1) if result.factible else None,
             "Desbalance día (h-auditor)": round(result.day_imbalance_min / 60, 1) if result.factible else None,
             "Desbalance auditor (h)": round(result.auditor_imbalance_min / 60, 1) if result.factible else None,
@@ -69,6 +75,33 @@ def build_plan_dataframe(run: OptimizationRun, config: OptimizationConfig, mode:
             "Prioridad": item.prioridad,
         })
     return pd.DataFrame(rows).sort_values(["Día", "Inicio", "Equipo"])
+
+
+def _place_label(value: str) -> str:
+    return DEPOT_NAME if value == DEPOT_ID else value
+
+
+def build_vehicle_dataframe(run: OptimizationRun, config: OptimizationConfig, mode: str = "minimum") -> pd.DataFrame:
+    selected = select_solution(run, mode)
+    if selected is None or not selected.vehicle_plan:
+        return pd.DataFrame()
+    rows = []
+    for leg in selected.vehicle_plan:
+        rows.append({
+            "Día": leg.dia,
+            "Salida": config.slot_a_hora(leg.salida_slot),
+            "Llegada aprox.": config.slot_a_hora(leg.llegada_slot),
+            "Viaje": leg.vehicle_id,
+            "Origen": _place_label(leg.origen_id),
+            "Destino": _place_label(leg.destino_id),
+            "Pasajeros": ", ".join(leg.pasajeros),
+            "Ocupación": leg.ocupacion,
+            "Km-vehículo": round(leg.distancia_km, 1),
+            "Tiempo (min)": round(leg.tiempo_min, 1),
+            "Tipo": "Compartido" if leg.ocupacion > 1 else "Individual",
+            "Motivo": leg.motivo,
+        })
+    return pd.DataFrame(rows).sort_values(["Día", "Salida", "Viaje"])
 
 
 def build_gantt_dataframe(run: OptimizationRun, config: OptimizationConfig, mode: str = "minimum") -> pd.DataFrame:
