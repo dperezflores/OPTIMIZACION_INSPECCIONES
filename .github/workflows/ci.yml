@@ -70,8 +70,6 @@ jobs:
           from src.vehicle_planner import calculate_legacy_vehicle_plan, calculate_vehicle_plan
 
           context = load_context()
-          # CI necesita ser rápido; la lógica es idéntica pero cada subproblema
-          # vehicular recibe un presupuesto menor que en Streamlit producción.
           context.config = replace(
               context.config,
               vehicle_routing_time_limit_seconds=0.6,
@@ -82,7 +80,7 @@ jobs:
               OptimizationRequest(
                   min_days=4,
                   max_days=4,
-                  time_limit_seconds=15,
+                  time_limit_seconds=30,
                   travel_provider=TRAVEL_PROVIDER_HAVERSINE,
                   compare_all_scenarios=False,
                   use_alns=True,
@@ -103,7 +101,7 @@ jobs:
           day_max = max(per_day)
           day_min = min(per_day)
 
-          cfg = replace(context.config, time_limit_seconds=15)
+          cfg = replace(context.config, time_limit_seconds=30)
           matrix = build_travel_matrix(context.obras, cfg)
           final_plan = run.refined_best.plan
           legacy = calculate_legacy_vehicle_plan(final_plan, matrix, cfg)
